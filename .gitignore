@@ -8,3 +8,5 @@ ui-debug.log
 .env
 .env.*
 serviceAccountKey.json
+.secret.local
+*.secret.local

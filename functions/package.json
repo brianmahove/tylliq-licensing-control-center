@@ -8,6 +8,7 @@
     "deploy": "firebase deploy --only functions,firestore:rules,firestore:indexes",
     "logs": "firebase functions:log",
     "cli": "node scripts/admin_cli.js",
+    "seed-demo": "node scripts/seed_demo_data.js",
     "gen-keypair": "node scripts/generate_signing_keypair.js",
     "set-admin": "node scripts/set_admin_claim.js"
   },
