@@ -67,6 +67,26 @@ function statusPill(status) {
   return `<span class="status ${statusTone(status)}"><i></i>${escapeHtml(titleCase(status || 'unknown'))}</span>`;
 }
 
+// A device only ever reports clock-integrity fields once it has detected at
+// least one backward clock jump (see clockIntegrityFields in
+// functions/src/activation.js) - most devices show nothing here at all.
+function clockIntegrityBadge(d) {
+  if (!d.clockRollbackCount) return '<span class="muted">—</span>';
+  const tone = d.clockIntegritySeverity === 'high' ? 'bad' : 'warn';
+  const label = d.clockIntegritySeverity === 'high' ? 'Tampering suspected' : 'Low';
+  const magnitude = d.lastRollbackMagnitudeMinutes != null
+    ? ` · last jump ${formatDuration(d.lastRollbackMagnitudeMinutes)}`
+    : '';
+  const title = `${d.clockRollbackCount} rollback${d.clockRollbackCount === 1 ? '' : 's'} detected${magnitude}`;
+  return `<span class="status ${tone}" title="${escapeHtml(title)}"><i></i>${escapeHtml(label)}</span>`;
+}
+
+function formatDuration(minutes) {
+  if (minutes >= 1440) return `${Math.round(minutes / 1440)}d`;
+  if (minutes >= 60) return `${Math.round(minutes / 60)}h`;
+  return `${minutes}m`;
+}
+
 function iconButton(action, iconName, label, extra = '') {
   return `<button type="button" class="icon-button row-icon-btn" data-action="${action}" ${extra} title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">${icon(iconName)}</button>`;
 }
@@ -533,9 +553,10 @@ function devicesView() {
     <td>${escapeHtml(d.deviceLabel || '—')}</td>
     <td>${escapeHtml(d.platform || '—')}</td>
     <td>${statusPill(d.status)}</td>
+    <td>${clockIntegrityBadge(d)}</td>
     <td>${escapeHtml(formatRelative(d.lastSeenAt))}</td>
     <td class="row-actions">${d.status === 'active' ? iconButton('deactivate-device', 'power', 'Deactivate device', `data-id="${escapeHtml(d.deviceId)}" data-business="${escapeHtml(d._businessName)}"`) : ''}</td>
-  </tr>`).join('') : `<tr><td colspan="7" class="blank"><span class="empty-icon">${icon('devices')}</span><strong>No devices found</strong><small>Devices appear here once a business activates the app.</small></td></tr>`;
+  </tr>`).join('') : `<tr><td colspan="8" class="blank"><span class="empty-icon">${icon('devices')}</span><strong>No devices found</strong><small>Devices appear here once a business activates the app.</small></td></tr>`;
   return `<section class="panel table-panel">
     <div class="panel-heading"><div><p class="eyebrow">DIRECTORY</p><h2>Devices</h2></div><div class="panel-actions"><span class="record-count">${filtered.length} records</span></div></div>
     <div class="table-tools">
@@ -544,7 +565,7 @@ function devicesView() {
       ${selectFilter('filter-status', state.filters.status, [['all', 'All Statuses'], ['active', 'Active'], ['deactivated', 'Deactivated']])}
       <button type="button" class="secondary-button filter-button" data-action="filter-reset">${icon('filter')}Reset</button>
     </div>
-    <div class="table-wrap"><table><thead><tr><th>Device ID</th><th>Business</th><th>Device Name</th><th>Platform</th><th>Status</th><th>Last Seen</th><th>Actions</th></tr></thead><tbody>${body}</tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Device ID</th><th>Business</th><th>Device Name</th><th>Platform</th><th>Status</th><th>Clock</th><th>Last Seen</th><th>Actions</th></tr></thead><tbody>${body}</tbody></table></div>
     ${paginationControls(filtered.length, page, state.pageSize)}
   </section>`;
 }

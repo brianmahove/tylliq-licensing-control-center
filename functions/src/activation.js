@@ -32,6 +32,40 @@ function buildCertificate({ license, licenseId, deviceId, now }) {
   };
 }
 
+// Mirrors kClockRollbackHardLockCount / kClockRollbackHardLockMagnitude in
+// the client's lib/license/license_local_store.dart - the client only ever
+// reports this once it has crossed into "at least one rollback detected",
+// but severity here still needs the same thresholds to know whether that's
+// a single minor blip or the escalated case the client is now hard-locked
+// over.
+const CLOCK_ROLLBACK_HARD_LOCK_COUNT = 3;
+const CLOCK_ROLLBACK_HARD_LOCK_MAGNITUDE_MINUTES = 7 * 24 * 60;
+
+/**
+ * Turns the optional `clockIntegrity` block a device sends on
+ * activate/revalidate into the fields persisted on its `devices/{id}` doc,
+ * so the admin dashboard can show a per-device clock-tamper history instead
+ * of only ever seeing the device's current (self-reported, and thus
+ * resettable) state.
+ */
+function clockIntegrityFields(clockIntegrity, now) {
+  if (!clockIntegrity || !clockIntegrity.rollbackCount) return {};
+  const rollbackCount = Number(clockIntegrity.rollbackCount) || 0;
+  const magnitudeMinutes = clockIntegrity.lastRollbackMagnitudeMinutes == null
+    ? null
+    : Number(clockIntegrity.lastRollbackMagnitudeMinutes);
+  const severity = rollbackCount >= CLOCK_ROLLBACK_HARD_LOCK_COUNT ||
+    (magnitudeMinutes != null && magnitudeMinutes >= CLOCK_ROLLBACK_HARD_LOCK_MAGNITUDE_MINUTES)
+    ? 'high'
+    : 'low';
+  return {
+    clockRollbackCount: rollbackCount,
+    lastRollbackMagnitudeMinutes: magnitudeMinutes,
+    clockIntegritySeverity: severity,
+    lastRollbackReportedAt: now.toISOString(),
+  };
+}
+
 async function findLicenseByKey(licenseKey) {
   const hash = sha256Hex(licenseKey);
   const snap = await db.collection('licenses').where('licenseKeyHash', '==', hash).limit(1).get();
@@ -49,7 +83,7 @@ async function findLicenseByKey(licenseKey) {
 exports.activateDevice = onRequest(withCors(async (req, res) => {
   if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
   if (!(await requireAppCheck(req, res))) return;
-  const { licenseKey, deviceId, platform, appVersion, deviceLabel = null } = req.body || {};
+  const { licenseKey, deviceId, platform, appVersion, deviceLabel = null, clockIntegrity = null } = req.body || {};
   if (!licenseKey || !deviceId || !platform || !appVersion) {
     return sendJson(res, 400, fail('invalid-argument', 'licenseKey, deviceId, platform, and appVersion are required'));
   }
@@ -83,16 +117,21 @@ exports.activateDevice = onRequest(withCors(async (req, res) => {
     // Idempotent re-activation of the same device on the same license:
     // refresh its credentials, don't count it against the device limit again.
     const deviceSecret = randomToken();
+    const clockFields = clockIntegrityFields(clockIntegrity, now);
     await deviceRef.update({
       status: 'active',
       platform, appVersion, deviceLabel,
       lastSeenAt: now.toISOString(),
       deviceSecretHash: sha256Hex(deviceSecret),
       deactivatedAt: null,
+      ...clockFields,
     });
     const cert = buildCertificate({ license, licenseId, deviceId, now });
     const { payload, signatureBase64Url } = signCertificate(cert, LICENSE_SIGNING_PRIVATE_KEY.value());
     await writeAuditLog({ type: 'activation_approved', businessId: license.businessId, licenseId, deviceId, meta: { reactivated: true, ip } });
+    if (clockFields.clockIntegritySeverity === 'high') {
+      await writeAuditLog({ type: 'clock_tamper_suspected', businessId: license.businessId, licenseId, deviceId, meta: { ...clockFields, ip } });
+    }
     return sendJson(res, 200, ok({ certificatePayload: payload, signature: signatureBase64Url, deviceSecret, serverTime: now.toISOString() }));
   }
 
@@ -116,6 +155,7 @@ exports.activateDevice = onRequest(withCors(async (req, res) => {
     status: 'active',
     branchId: null,
     deactivatedAt: null,
+    ...clockIntegrityFields(clockIntegrity, now),
   });
   const cert = buildCertificate({ license, licenseId, deviceId, now });
   const { payload, signatureBase64Url } = signCertificate(cert, LICENSE_SIGNING_PRIVATE_KEY.value());
@@ -132,7 +172,7 @@ exports.activateDevice = onRequest(withCors(async (req, res) => {
 exports.revalidateDevice = onRequest(withCors(async (req, res) => {
   if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
   if (!(await requireAppCheck(req, res))) return;
-  const { deviceId, deviceSecret } = req.body || {};
+  const { deviceId, deviceSecret, clockIntegrity = null } = req.body || {};
   if (!deviceId || !deviceSecret) {
     return sendJson(res, 400, fail('invalid-argument', 'deviceId and deviceSecret are required'));
   }
@@ -152,9 +192,13 @@ exports.revalidateDevice = onRequest(withCors(async (req, res) => {
   }
   const license = licenseSnap.data();
   const now = new Date();
-  await deviceRef.update({ lastSeenAt: now.toISOString() });
+  const clockFields = clockIntegrityFields(clockIntegrity, now);
+  await deviceRef.update({ lastSeenAt: now.toISOString(), ...clockFields });
   const cert = buildCertificate({ license, licenseId: device.licenseId, deviceId, now });
   const { payload, signatureBase64Url } = signCertificate(cert, LICENSE_SIGNING_PRIVATE_KEY.value());
   await writeAuditLog({ type: 'revalidation_succeeded', businessId: device.businessId, licenseId: device.licenseId, deviceId, meta: { status: cert.status } });
+  if (clockFields.clockIntegritySeverity === 'high') {
+    await writeAuditLog({ type: 'clock_tamper_suspected', businessId: device.businessId, licenseId: device.licenseId, deviceId, meta: clockFields });
+  }
   return sendJson(res, 200, ok({ certificatePayload: payload, signature: signatureBase64Url, serverTime: now.toISOString() }));
 }), { secrets: [LICENSE_SIGNING_PRIVATE_KEY], maxInstances: PUBLIC_MAX_INSTANCES });
