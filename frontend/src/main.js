@@ -1,6 +1,6 @@
 import './styles.css';
 import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, sendPasswordResetEmail, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 
 const firebaseApp = initializeApp({
   apiKey: 'AIzaSyDL9-IU5W8vLbNl9Ayulenbz7tvz0jhEFY',
@@ -46,11 +46,17 @@ function shieldIcon() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 19 6v5c0 4.4-2.9 8.4-7 10-4.1-1.6-7-5.6-7-10V6l7-3Z"/><path d="m8.7 12 2.1 2.1 4.5-4.6"/></svg>';
 }
 
+function eyeIcon(open) {
+  return open ?
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z"/><circle cx="12" cy="12" r="3"/></svg>' :
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.2A11.6 11.6 0 0 1 12 5c7 0 11 7 11 7a17.7 17.7 0 0 1-4 4.6M6.2 6.6C3.1 8.6 1 12 1 12s4 7 11 7a10.6 10.6 0 0 0 4.2-.9"/><path d="M9.5 9.5a3 3 0 0 0 4.2 4.2"/></svg>';
+}
+
 function renderLoading() {
   app.innerHTML = `<main class="loading-screen"><div class="loading-logo">${shieldIcon()}</div><h1>Licensing Control Center</h1><p>Loading your administration panel...</p><span class="spinner"></span></main>`;
 }
 
-function renderLogin(error = '') {
+function renderLogin(error = '', info = '') {
   app.innerHTML = `<main class="login-shell">
     <section class="login-panel">
       <div class="login-brand"><span class="brand-mark">${shieldIcon()}</span><strong>Licensing Control Center</strong></div>
@@ -59,19 +65,38 @@ function renderLogin(error = '') {
       <p class="login-copy">Manage businesses, entitlements, devices, and the audit trail from one secure workspace.</p>
       <form id="login-form" class="login-form">
         <label>Email address<input name="email" type="email" placeholder="admin@company.com" required /></label>
-        <label>Password<input name="password" type="password" placeholder="Enter your password" required /></label>
+        <label>Password<div class="password-field"><input name="password" type="password" placeholder="Enter your password" required /><button type="button" class="icon-button" data-action="toggle-password" aria-label="Show password">${eyeIcon(false)}</button></div></label>
         ${error ? `<p class="form-error">${escapeHtml(error)}</p>` : ''}
-        <div class="form-row"><label class="check-label"><input type="checkbox" /> Remember me</label><button class="text-button" type="button">Forgot password?</button></div>
+        ${info ? `<p class="form-info">${escapeHtml(info)}</p>` : ''}
+        <div class="form-row"><label class="check-label"><input type="checkbox" /> Remember me</label><button class="text-button" type="button" data-action="forgot-password">Forgot password?</button></div>
         <button class="primary-button" type="submit">Sign in <span>↗</span></button>
       </form>
       <p class="login-hint">Authorized administrators only</p>
     </section>
     <aside class="login-art"><div class="art-grid"></div><div class="art-note">02<br><small>LICENSE<br>HEALTH</small></div><div class="art-word">TYLLIQ</div></aside>
   </main>`;
+  const passwordInput = document.querySelector('input[name="password"]');
+  document.querySelector('[data-action="toggle-password"]').addEventListener('click', (event) => {
+    const button = event.currentTarget;
+    const showing = passwordInput.type === 'text';
+    passwordInput.type = showing ? 'password' : 'text';
+    button.innerHTML = eyeIcon(!showing);
+    button.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+  });
+  document.querySelector('[data-action="forgot-password"]').addEventListener('click', async () => {
+    const email = document.querySelector('input[name="email"]').value.trim();
+    if (!email) return renderLogin('', 'Enter your email address above first, then click "Forgot password?" again.');
+    try {
+      await sendPasswordResetEmail(auth, email);
+      renderLogin('', `Password reset email sent to ${email}. Check your inbox.`);
+    } catch (resetError) {
+      renderLogin(resetError.code === 'auth/user-not-found' ? 'No account found for that email.' : resetError.message);
+    }
+  });
   document.querySelector('#login-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const button = event.currentTarget.querySelector('button');
+    const button = event.currentTarget.querySelector('button[type="submit"]');
     button.disabled = true;
     button.textContent = 'Signing in...';
     try {

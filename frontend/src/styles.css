@@ -32,6 +32,10 @@ input:focus { border-color:var(--blue); box-shadow:0 0 0 3px #0878d11c; }
 .primary-button:disabled { opacity:.6; cursor:wait; }
 .login-hint { color:#9b9b91; font:11px 'DM Mono', monospace; margin-top:40px; }
 .form-error { color:var(--rose); font-size:12px; margin:0; }
+.form-info { color:var(--green); font-size:12px; margin:0; }
+.password-field { display:flex; gap:8px; align-items:center; }
+.password-field input { flex:1; min-width:0; }
+.password-field .icon-button { flex:none; }
 .form-row { display:flex; justify-content:space-between; align-items:center; gap:12px; }
 .check-label { display:flex; align-items:center; gap:7px; font-size:11px; font-weight:500; }
 .check-label input { width:14px; height:14px; padding:0; }
