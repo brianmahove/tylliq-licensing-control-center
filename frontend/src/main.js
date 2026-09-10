@@ -695,7 +695,7 @@ function businessDetailView() {
       <article class="panel settings-card"><p class="eyebrow">PLAN &amp; LICENSE</p><h2>${activeLicense ? 'Active entitlement' : 'No license yet'}</h2>
         ${activeLicense ? `
         <div class="kv-row"><span>Plan</span><strong>${escapeHtml(plan?.name || activeLicense.planId)}</strong></div>
-        <div class="kv-row"><span>License ID</span><strong class="mono">${escapeHtml(activeLicense.licenseId)}</strong></div>
+        <div class="id-field"><span>License ID</span><strong class="mono">${escapeHtml(activeLicense.licenseId)}</strong><button type="button" class="icon-button" data-action="copy-text" data-value="${escapeHtml(activeLicense.licenseId)}" title="Copy license ID">${icon('copy')}</button></div>
         <div class="kv-row"><span>Status</span>${statusPill(activeLicense.status)}</div>
         <div class="kv-row"><span>Expiry Date</span><strong>${escapeHtml(formatDate(activeLicense.expiresAt))}</strong></div>
         <div class="kv-row"><span>Max Devices</span><strong>${formatNumber(activeLicense.maxDevices)}</strong></div>
@@ -845,7 +845,8 @@ function paymentFields(presetBusinessId) {
 }
 
 function manageLicenseFields(license, plans) {
-  return `<div class="kv-row"><span>License ID</span><strong class="mono">${escapeHtml(license.licenseId)}</strong></div>
+  return `<div class="id-field"><span>License ID</span><strong class="mono">${escapeHtml(license.licenseId)}</strong><button type="button" class="icon-button" data-action="copy-text" data-value="${escapeHtml(license.licenseId)}" title="Copy license ID">${icon('copy')}</button></div>
+    <div class="kv-row"><span>License key</span><button type="button" class="secondary-button filter-button" data-action="regenerate-key" data-id="${escapeHtml(license.licenseId)}">Regenerate key</button></div>
     <div class="kv-row"><span>Current status</span>${statusPill(license.status)}</div>
     <label>Status<select name="status">${['active', 'suspended', 'revoked', 'expired'].map((s) => `<option value="${s}" ${license.status === s ? 'selected' : ''}>${titleCase(s)}</option>`).join('')}</select></label>
     <label>Plan<select name="planId">${optionList(plans, 'planId', 'name', 'Select plan', license.planId)}</select></label>
@@ -1054,7 +1055,7 @@ async function handleConfirmYes() {
   state.confirm = null;
   await withSaving(async () => {
     const message = await c.run();
-    showToast(message || 'Done');
+    if (message !== null) showToast(message || 'Done');
     await refreshCurrentView();
   });
   renderApp();
@@ -1137,6 +1138,23 @@ function handleAction(action, target, event) {
       const source = state.view === 'business-detail' ? state.businessDetail.licenses : (state.data?.licenses || []);
       const license = source.find((l) => l.licenseId === id);
       if (license) openModal('manage-license', license);
+      return;
+    }
+    case 'regenerate-key': {
+      openConfirm({
+        title: 'Regenerate license key?',
+        message: 'The current license key stops working for new activations immediately. Devices already activated on this license are unaffected. The new key is shown once and cannot be recovered later.',
+        confirmLabel: 'Regenerate',
+        danger: true,
+        run: async () => {
+          const result = await apiCall('adminRegenerateLicenseKey', { licenseId: id });
+          state.modal = null;
+          state.modalLookups = null;
+          state.modalEntity = null;
+          state.revealedLicenseKey = result.licenseKey;
+          return null;
+        },
+      });
       return;
     }
     case 'toggle-business-status': {

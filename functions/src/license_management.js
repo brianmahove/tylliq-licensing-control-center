@@ -100,6 +100,28 @@ exports.adminSetLicenseStatus = onRequest(withCors(async (req, res) => {
   return sendJson(res, 200, ok({ licenseId, status }));
 }));
 
+exports.adminRegenerateLicenseKey = onRequest(withCors(async (req, res) => {
+  // Recovery path for a lost/leaked license key: mint a new key, store only
+  // its hash (same as creation), and drop the old key's ability to activate
+  // new devices. Already-activated devices are untouched - they authenticate
+  // with their own deviceSecret, not the license key (see revalidateDevice).
+  if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
+  const admin_ = await requireRole(req, res, WRITE_ROLES);
+  if (!admin_) return;
+  const { licenseId } = req.body || {};
+  if (!licenseId) return sendJson(res, 400, fail('invalid-argument', 'licenseId is required'));
+  const ref = db.collection('licenses').doc(licenseId);
+  const snap = await ref.get();
+  if (!snap.exists) return sendJson(res, 404, fail('not-found', 'License not found'));
+  const current = snap.data();
+
+  const licenseKey = formatLicenseKey(randomToken(20));
+  const licenseKeyHash = sha256Hex(licenseKey);
+  await ref.update({ licenseKeyHash, updatedAt: new Date().toISOString(), version: (current.version || 1) + 1 });
+  await writeAuditLog({ type: 'license_key_regenerated', businessId: current.businessId, licenseId, meta: { by: admin_.uid } });
+  return sendJson(res, 200, ok({ licenseId, licenseKey }));
+}));
+
 exports.adminGetLicense = onRequest(withCors(async (req, res) => {
   if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
   if (!(await requireAdmin(req, res))) return;
