@@ -1,24 +1,22 @@
 import './styles.css';
 import { initializeApp } from 'firebase/app';
-import {
-  connectAuthEmulator,
-  getAuth,
-  onAuthStateChanged,
-  signInWithEmailAndPassword,
-  signOut,
-} from 'firebase/auth';
+import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 
 const firebaseApp = initializeApp({
-  apiKey: 'demo-api-key',
+  apiKey: 'AIzaSyDL9-IU5W8vLbNl9Ayulenbz7tvz0jhEFY',
   authDomain: 'tylliq-licensing.firebaseapp.com',
   projectId: 'tylliq-licensing',
-  appId: 'demo-app-id',
+  storageBucket: 'tylliq-licensing.firebasestorage.app',
+  messagingSenderId: '810494450736',
+  appId: '1:810494450736:web:72ddc335818624cdd6e1f5',
 });
 const auth = getAuth(firebaseApp);
-connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
 
-const FUNCTION_BASE = 'http://127.0.0.1:5001/tylliq-licensing/us-central1';
-const state = { view: 'overview', user: null, data: null, loading: false, booting: true, search: '', filter: 'all', modal: null };
+const FUNCTION_BASE = 'https://us-central1-tylliq-licensing.cloudfunctions.net';
+const state = {
+  view: 'overview', user: null, data: null, loading: false, booting: true, search: '', filter: 'all',
+  modal: null, modalError: null, modalLookups: null, modalSaving: false, revealedLicenseKey: null,
+};
 
 const app = document.querySelector('#app');
 
@@ -196,11 +194,44 @@ function settingsContent() {
   return `<section class="settings-grid"><article class="panel settings-card"><p class="eyebrow">GENERAL SETTINGS</p><h2>Workspace preferences</h2><label>Company name<input placeholder="Company name" /></label><label>Currency<select><option>Select currency</option></select></label><label>Receipt footer<input placeholder="Optional receipt footer" /></label><button class="primary-button">Save changes</button></article><article class="panel settings-card"><p class="eyebrow">LICENSE & BACKUP</p><h2>Operational safeguards</h2><div class="setting-row"><span><strong>License activation</strong><small>Configuration supplied by backend</small></span><span class="status"><i></i>—</span></div><div class="setting-row"><span><strong>Backup status</strong><small>No backup status available</small></span><span class="status"><i></i>—</span></div><button class="secondary-button">Export backup</button></article><article class="panel settings-card"><p class="eyebrow">SHOP & DEVICE IDS</p><h2>Identifiers</h2><div class="id-field"><span>Shop ID</span><strong>—</strong><button class="icon-button" title="Copy shop ID">⧉</button></div><div class="id-field"><span>Device ID</span><strong>—</strong><button class="icon-button" title="Copy device ID">⧉</button></div></article><article class="panel settings-card"><p class="eyebrow">SECURITY</p><h2>Administrator settings</h2><div class="setting-row"><span><strong>Signed in account</strong><small>${escapeHtml(state.user?.email || '—')}</small></span><span class="status good"><i></i>Active</span></div><button class="secondary-button">Manage profile</button></article></section>`;
 }
 
+function optionList(items, valueKey, labelKey, placeholder) {
+  const options = (items || []).map((item) => `<option value="${escapeHtml(item[valueKey])}">${escapeHtml(item[labelKey] || item[valueKey])}</option>`).join('');
+  return `<option value="" disabled selected>${escapeHtml(placeholder)}</option>${options}`;
+}
+
+function licenseFields() {
+  if (!state.modalLookups) return '<p class="modal-copy">Loading businesses and plans...</p>';
+  const { businesses, plans } = state.modalLookups;
+  return `<label>Business<select name="businessId" required>${optionList(businesses, 'businessId', 'name', 'Select business')}</select></label>
+    <label>Plan<select name="planId" required>${optionList(plans, 'planId', 'name', 'Select plan')}</select></label>
+    <label>Maximum devices<input name="maxDevices" type="number" min="1" placeholder="Maximum devices" required /></label>
+    <label>Start date<input name="startDate" type="date" /></label>
+    <label>Expiry date<input name="expiresAt" type="date" /></label>
+    <label>Enabled features (comma-separated)<input name="features" placeholder="pos, inventory, reports" /></label>`;
+}
+
+function businessFields() {
+  return `<label>Business name<input name="name" placeholder="Business name" required /></label>
+    <label>Contact email<input name="contactEmail" type="email" placeholder="Contact email" /></label>
+    <label>Country<input name="country" placeholder="Country" /></label>`;
+}
+
+function planFields() {
+  return `<label>Plan ID (unique)<input name="planId" placeholder="e.g. pro_monthly" required /></label>
+    <label>Plan name<input name="name" placeholder="Plan name" required /></label>
+    <label>Maximum devices<input name="maxDevices" type="number" min="1" placeholder="Maximum devices" required /></label>
+    <label>Billing period<select name="billingPeriod"><option value="monthly">Monthly</option><option value="yearly">Yearly</option></select></label>
+    <label>Enabled features (comma-separated)<input name="features" placeholder="pos, inventory, reports" /></label>`;
+}
+
 function modalContent() {
+  if (state.revealedLicenseKey) {
+    return `<div class="modal-backdrop" data-action="close-key-reveal"><section class="modal" role="dialog"><button class="modal-close" data-action="close-key-reveal" aria-label="Close">×</button><p class="eyebrow">LICENSE ISSUED</p><h2>Save this license key now</h2><p class="modal-copy">This is shown once and stored only as a hash - it cannot be recovered later. Give it to the business owner.</p><div class="id-field"><strong>${escapeHtml(state.revealedLicenseKey)}</strong><button type="button" class="icon-button" data-action="copy-key" title="Copy license key">⧉</button></div><div class="modal-actions"><button type="button" class="primary-button" data-action="close-key-reveal">Done</button></div></section></div>`;
+  }
   if (!state.modal) return '';
   const title = state.modal === 'license' ? 'Issue License' : `Add ${state.modal}`;
-  const fields = state.modal === 'license' ? '<label>Business<select><option>Select business</option></select></label><label>Plan<select><option>Select plan</option></select></label><label>Maximum devices<input type="number" placeholder="Maximum devices" /></label><label>Start date<input type="date" /></label><label>Expiry date<input type="date" /></label><label>Enabled features<input placeholder="Select features" /></label>' : state.modal === 'business' ? '<label>Business name<input placeholder="Business name" required /></label><label>Contact email<input type="email" placeholder="Contact email" /></label><label>Country<input placeholder="Country" /></label>' : '<label>Plan name<input placeholder="Plan name" required /></label><label>Maximum devices<input type="number" placeholder="Maximum devices" required /></label><label>Billing period<select><option>Select billing period</option></select></label><label>Enabled features<input placeholder="Select features" /></label>';
-  return `<div class="modal-backdrop" data-action="close-modal"><section class="modal" role="dialog"><button class="modal-close" data-action="close-modal" aria-label="Close">×</button><p class="eyebrow">ADMINISTRATION</p><h2>${title}</h2><p class="modal-copy">Values are validated and submitted through the existing backend.</p><form id="entity-form" class="entity-form">${fields}<div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">Cancel</button><button type="submit" class="primary-button">${title}</button></div></form></section></div>`;
+  const fields = state.modal === 'license' ? licenseFields() : state.modal === 'business' ? businessFields() : planFields();
+  return `<div class="modal-backdrop" data-action="close-modal"><section class="modal" role="dialog"><button class="modal-close" data-action="close-modal" aria-label="Close">×</button><p class="eyebrow">ADMINISTRATION</p><h2>${title}</h2><p class="modal-copy">Values are validated and submitted through the existing backend.</p><form id="entity-form" class="entity-form">${fields}${state.modalError ? `<p class="form-error">${escapeHtml(state.modalError)}</p>` : ''}<div class="modal-actions"><button type="button" class="secondary-button" data-action="close-modal">Cancel</button><button type="submit" class="primary-button" ${state.modalSaving ? 'disabled' : ''}>${state.modalSaving ? 'Saving...' : title}</button></div></form></section></div>`;
 }
 
 async function loadViewData() {
@@ -218,6 +249,71 @@ async function loadViewData() {
   renderApp();
 }
 
+async function openModal(kind) {
+  state.modal = kind;
+  state.modalError = null;
+  state.modalLookups = null;
+  renderApp();
+  if (kind === 'license') {
+    try {
+      const [businessesResult, plansResult] = await Promise.all([apiCall('adminListBusinesses'), apiCall('adminListPlans')]);
+      state.modalLookups = { businesses: businessesResult.businesses, plans: plansResult.plans };
+    } catch (error) {
+      state.modalError = error.message;
+    }
+    renderApp();
+  }
+}
+
+function parseFeatures(raw) {
+  return (raw || '').split(',').map((feature) => feature.trim()).filter(Boolean);
+}
+
+async function submitEntityForm(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  state.modalSaving = true;
+  state.modalError = null;
+  renderApp();
+  try {
+    if (state.modal === 'business') {
+      await apiCall('adminCreateBusiness', {
+        name: form.get('name'),
+        contactEmail: form.get('contactEmail') || null,
+        country: form.get('country') || null,
+      });
+      state.modal = null;
+    } else if (state.modal === 'plan') {
+      await apiCall('adminCreatePlan', {
+        planId: form.get('planId'),
+        name: form.get('name'),
+        maxDevices: Number(form.get('maxDevices')),
+        billingPeriod: form.get('billingPeriod'),
+        features: parseFeatures(form.get('features')),
+      });
+      state.modal = null;
+    } else if (state.modal === 'license') {
+      const result = await apiCall('adminCreateLicense', {
+        businessId: form.get('businessId'),
+        planId: form.get('planId'),
+        maxDevices: Number(form.get('maxDevices')),
+        startDate: form.get('startDate') || null,
+        expiresAt: form.get('expiresAt') || null,
+        features: parseFeatures(form.get('features')),
+      });
+      state.modal = null;
+      state.revealedLicenseKey = result.licenseKey;
+    }
+    state.modalLookups = null;
+    state.modalSaving = false;
+    await loadViewData();
+  } catch (error) {
+    state.modalSaving = false;
+    state.modalError = error.message;
+    renderApp();
+  }
+}
+
 function renderApp() {
   if (!state.user) return renderLogin();
   const navItems = [['overview', 'Dashboard'], ['businesses', 'Businesses'], ['licenses', 'Licenses'], ['devices', 'Devices'], ['plans', 'Plans'], ['payments', 'Payments'], ['features', 'Features'], ['attempts', 'Activation Attempts'], ['audit', 'Audit Log'], ['settings', 'Settings']];
@@ -229,9 +325,11 @@ function renderApp() {
   document.querySelector('[data-action="search"]')?.addEventListener('input', (event) => { state.search = event.target.value; renderApp(); document.querySelector('[data-action="search"]')?.focus(); });
   document.querySelector('[data-action="filter"]')?.addEventListener('change', (event) => { state.filter = event.target.value; renderApp(); });
   document.querySelector('[data-action="filter-reset"]')?.addEventListener('click', () => { state.search = ''; state.filter = 'all'; renderApp(); });
-  document.querySelectorAll('[data-action="notice"]').forEach((button) => button.addEventListener('click', () => { state.modal = state.view === 'licenses' ? 'license' : state.view === 'businesses' ? 'business' : 'plan'; renderApp(); }));
-  document.querySelectorAll('[data-action="close-modal"]').forEach((button) => button.addEventListener('click', (event) => { if (event.target === button) { state.modal = null; renderApp(); } }));
-  document.querySelector('#entity-form')?.addEventListener('submit', (event) => { event.preventDefault(); state.modal = null; renderApp(); });
+  document.querySelectorAll('[data-action="notice"]').forEach((button) => button.addEventListener('click', () => openModal(state.view === 'licenses' ? 'license' : state.view === 'businesses' ? 'business' : 'plan')));
+  document.querySelectorAll('[data-action="close-modal"]').forEach((button) => button.addEventListener('click', (event) => { if (event.target === button) { state.modal = null; state.modalError = null; state.modalLookups = null; renderApp(); } }));
+  document.querySelectorAll('[data-action="close-key-reveal"]').forEach((button) => button.addEventListener('click', (event) => { if (event.target === button) { state.revealedLicenseKey = null; renderApp(); } }));
+  document.querySelector('[data-action="copy-key"]')?.addEventListener('click', () => navigator.clipboard?.writeText(state.revealedLicenseKey || ''));
+  document.querySelector('#entity-form')?.addEventListener('submit', submitEntityForm);
   document.querySelector('[data-action="signout"]').addEventListener('click', () => signOut(auth));
 }
 
