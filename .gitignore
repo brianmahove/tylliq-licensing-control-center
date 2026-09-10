@@ -10,3 +10,5 @@ ui-debug.log
 serviceAccountKey.json
 .secret.local
 *.secret.local
+.vercel
+.env*
