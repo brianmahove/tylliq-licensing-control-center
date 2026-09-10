@@ -1,4 +1,4 @@
-const { onRequest } = require('firebase-functions/v2/https');
+const { onRequest } = require('./https_utils');
 const { db } = require('./firebase_admin');
 const { requireAdmin } = require('./admin_auth');
 const { ok, fail, sendJson } = require('./response_utils');

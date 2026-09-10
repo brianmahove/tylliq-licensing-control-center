@@ -1,10 +1,11 @@
-const { onRequest } = require('firebase-functions/v2/https');
+const { onRequest, PUBLIC_MAX_INSTANCES } = require('./https_utils');
 const { db } = require('./firebase_admin');
 const { ok, fail, sendJson } = require('./response_utils');
 const { withCors } = require('./cors_utils');
 const { writeAuditLog } = require('./audit');
 const { sha256Hex } = require('./crypto_utils');
 const { redactDevice } = require('./redact');
+const { requireAppCheck } = require('./app_check_utils');
 
 // Lets a business owner manage their own devices (e.g. to free a slot for a
 // replacement computer) by re-entering the licenseKey each time, rather
@@ -21,6 +22,7 @@ async function licenseFromKey(licenseKey) {
 
 exports.listMyDevices = onRequest(withCors(async (req, res) => {
   if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
+  if (!(await requireAppCheck(req, res))) return;
   const { licenseKey } = req.body || {};
   if (!licenseKey) return sendJson(res, 400, fail('invalid-argument', 'licenseKey is required'));
   const found = await licenseFromKey(licenseKey);
@@ -28,10 +30,11 @@ exports.listMyDevices = onRequest(withCors(async (req, res) => {
   const devicesSnap = await db.collection('devices').where('licenseId', '==', found.licenseId).get();
   const devices = devicesSnap.docs.map((d) => redactDevice(d.id, d.data()));
   return sendJson(res, 200, ok({ licenseId: found.licenseId, maxDevices: found.license.maxDevices, devices }));
-}));
+}), { maxInstances: PUBLIC_MAX_INSTANCES });
 
 exports.deactivateMyDevice = onRequest(withCors(async (req, res) => {
   if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
+  if (!(await requireAppCheck(req, res))) return;
   const { licenseKey, deviceId } = req.body || {};
   if (!licenseKey || !deviceId) return sendJson(res, 400, fail('invalid-argument', 'licenseKey and deviceId are required'));
   const found = await licenseFromKey(licenseKey);
@@ -44,4 +47,4 @@ exports.deactivateMyDevice = onRequest(withCors(async (req, res) => {
   await deviceRef.update({ status: 'deactivated', deactivatedAt: new Date().toISOString() });
   await writeAuditLog({ type: 'device_deactivated', businessId: found.license.businessId, licenseId: found.licenseId, deviceId, meta: { by: 'self_service' } });
   return sendJson(res, 200, ok({ deviceId, status: 'deactivated' }));
-}));
+}), { maxInstances: PUBLIC_MAX_INSTANCES });

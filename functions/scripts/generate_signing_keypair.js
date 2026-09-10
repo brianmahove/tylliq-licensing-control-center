@@ -5,11 +5,12 @@
 //   node scripts/generate_signing_keypair.js
 //
 // Then:
-//   1. Paste the PUBLIC key into shopsync_pos/lib/license/license_crypto.dart
+//   1. Paste the PUBLIC key into tylliq_pos/lib/license/license_crypto.dart
 //      (replaces the placeholder constant there).
 //   2. Store the PRIVATE key ONLY as a Firebase Functions secret:
 //        firebase functions:secrets:set LICENSE_SIGNING_PRIVATE_KEY
-//      (paste the full PEM, including the BEGIN/END lines, when prompted)
+//      (paste the full PEM, including the BEGIN/END lines, when prompted).
+//      Requires the Blaze plan - see "Billing plan" in README.md.
 //   3. Do not commit the private key anywhere. Keep an offline backup
 //      somewhere secure - losing it means every already-issued license
 //      certificate can still be verified (verification only needs the

@@ -1,11 +1,13 @@
-const { onRequest } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
+const { onRequest, PUBLIC_MAX_INSTANCES } = require('./https_utils');
 const { db } = require('./firebase_admin');
 const { ok, fail, sendJson } = require('./response_utils');
 const { withCors } = require('./cors_utils');
 const { writeAuditLog } = require('./audit');
 const { signCertificate, randomToken, sha256Hex } = require('./crypto_utils');
 const { effectiveStatus } = require('./license_status');
+const { requireAppCheck } = require('./app_check_utils');
+const { checkActivationRateLimit } = require('./rate_limit');
 
 // The Ed25519 private key never leaves this secret - not in source, not in
 // an env var checked into anything, not in any client (see
@@ -44,13 +46,17 @@ async function findLicenseByKey(licenseKey) {
  * (see the "Why a licenseKey is the credential" note in
  * docs/LICENSING_ADMIN.md).
  */
-exports.activateDevice = onRequest({ secrets: [LICENSE_SIGNING_PRIVATE_KEY] }, withCors(async (req, res) => {
+exports.activateDevice = onRequest(withCors(async (req, res) => {
   if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
+  if (!(await requireAppCheck(req, res))) return;
   const { licenseKey, deviceId, platform, appVersion, deviceLabel = null } = req.body || {};
   if (!licenseKey || !deviceId || !platform || !appVersion) {
     return sendJson(res, 400, fail('invalid-argument', 'licenseKey, deviceId, platform, and appVersion are required'));
   }
   const ip = req.ip || req.headers['x-forwarded-for'] || null;
+  if (!(await checkActivationRateLimit(ip))) {
+    return sendJson(res, 429, fail('resource-exhausted', 'Too many activation attempts. Try again later.'));
+  }
 
   const found = await findLicenseByKey(licenseKey);
   if (!found) {
@@ -115,7 +121,7 @@ exports.activateDevice = onRequest({ secrets: [LICENSE_SIGNING_PRIVATE_KEY] }, w
   const { payload, signatureBase64Url } = signCertificate(cert, LICENSE_SIGNING_PRIVATE_KEY.value());
   await writeAuditLog({ type: 'activation_approved', businessId: license.businessId, licenseId, deviceId, meta: { ip } });
   return sendJson(res, 200, ok({ certificatePayload: payload, signature: signatureBase64Url, deviceSecret, serverTime: now.toISOString() }));
-}));
+}), { secrets: [LICENSE_SIGNING_PRIVATE_KEY], maxInstances: PUBLIC_MAX_INSTANCES });
 
 /**
  * Public, but requires the per-device secret issued at activation (not just
@@ -123,8 +129,9 @@ exports.activateDevice = onRequest({ secrets: [LICENSE_SIGNING_PRIVATE_KEY] }, w
  * periodically to refresh its offline grace window and pick up a
  * suspend/revoke/renew that happened server-side since it last checked in.
  */
-exports.revalidateDevice = onRequest({ secrets: [LICENSE_SIGNING_PRIVATE_KEY] }, withCors(async (req, res) => {
+exports.revalidateDevice = onRequest(withCors(async (req, res) => {
   if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
+  if (!(await requireAppCheck(req, res))) return;
   const { deviceId, deviceSecret } = req.body || {};
   if (!deviceId || !deviceSecret) {
     return sendJson(res, 400, fail('invalid-argument', 'deviceId and deviceSecret are required'));
@@ -150,4 +157,4 @@ exports.revalidateDevice = onRequest({ secrets: [LICENSE_SIGNING_PRIVATE_KEY] },
   const { payload, signatureBase64Url } = signCertificate(cert, LICENSE_SIGNING_PRIVATE_KEY.value());
   await writeAuditLog({ type: 'revalidation_succeeded', businessId: device.businessId, licenseId: device.licenseId, deviceId, meta: { status: cert.status } });
   return sendJson(res, 200, ok({ certificatePayload: payload, signature: signatureBase64Url, serverTime: now.toISOString() }));
-}));
+}), { secrets: [LICENSE_SIGNING_PRIVATE_KEY], maxInstances: PUBLIC_MAX_INSTANCES });
