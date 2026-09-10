@@ -1,23 +1,28 @@
 const { db } = require('./firebase_admin');
 
-// Guards activateDevice specifically: licenseKey is the credential (see the
-// "Why a licenseKey is the credential" note in activation.js), and it's the
-// one thing here an attacker can brute-force guess by IP without already
-// holding a valid secret - revalidateDevice's deviceSecret is a random
-// 32-byte token, not realistically guessable, so it doesn't need this.
 const WINDOW_MS = 60 * 60 * 1000; // 1 hour
-const MAX_ATTEMPTS_PER_WINDOW = 20;
+const ACTIVATION_MAX_ATTEMPTS_PER_WINDOW = 20;
+
+// listMyDevices/deactivateMyDevice don't need brute-force protection - the
+// licenseKey is a 160-bit token, not realistically guessable - but they're
+// still public, unauthenticated, billed Cloud Functions invocations, so an
+// IP hammering them for cost-based abuse should still get capped. Looser
+// than activation's since these are legitimate self-service actions a busy
+// front desk might call repeatedly.
+const SELF_SERVICE_MAX_ATTEMPTS_PER_WINDOW = 60;
 
 /**
+ * @param {string} bucket logical name for what's being limited (e.g. "activate", "self_service")
  * @param {string|null} ip caller's IP, or null if unavailable
+ * @param {number} maxAttempts attempts allowed per window before rejecting
  * @return {Promise<boolean>} false if this IP should be rejected with 429
  */
-async function checkActivationRateLimit(ip) {
+async function checkIpRateLimit(bucket, ip, maxAttempts) {
   // No identifier to key on - fail open rather than accidentally rate-limit
   // every caller behind an unknown proxy under one bucket.
   if (!ip) return true;
 
-  const ref = db.collection('rateLimits').doc(`activate_${ip}`);
+  const ref = db.collection('rateLimits').doc(`${bucket}_${ip}`);
   return db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     const now = Date.now();
@@ -26,10 +31,18 @@ async function checkActivationRateLimit(ip) {
       tx.set(ref, { windowStart: now, count: 1 });
       return true;
     }
-    if (data.count >= MAX_ATTEMPTS_PER_WINDOW) return false;
+    if (data.count >= maxAttempts) return false;
     tx.update(ref, { count: data.count + 1 });
     return true;
   });
 }
 
-module.exports = { checkActivationRateLimit };
+function checkActivationRateLimit(ip) {
+  return checkIpRateLimit('activate', ip, ACTIVATION_MAX_ATTEMPTS_PER_WINDOW);
+}
+
+function checkSelfServiceRateLimit(ip) {
+  return checkIpRateLimit('self_service', ip, SELF_SERVICE_MAX_ATTEMPTS_PER_WINDOW);
+}
+
+module.exports = { checkActivationRateLimit, checkSelfServiceRateLimit };

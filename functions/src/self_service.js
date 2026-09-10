@@ -6,6 +6,7 @@ const { writeAuditLog } = require('./audit');
 const { sha256Hex } = require('./crypto_utils');
 const { redactDevice } = require('./redact');
 const { requireAppCheck } = require('./app_check_utils');
+const { checkSelfServiceRateLimit } = require('./rate_limit');
 
 // Lets a business owner manage their own devices (e.g. to free a slot for a
 // replacement computer) by re-entering the licenseKey each time, rather
@@ -23,6 +24,10 @@ async function licenseFromKey(licenseKey) {
 exports.listMyDevices = onRequest(withCors(async (req, res) => {
   if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
   if (!(await requireAppCheck(req, res))) return;
+  const ip = req.ip || req.headers['x-forwarded-for'] || null;
+  if (!(await checkSelfServiceRateLimit(ip))) {
+    return sendJson(res, 429, fail('resource-exhausted', 'Too many requests. Try again later.'));
+  }
   const { licenseKey } = req.body || {};
   if (!licenseKey) return sendJson(res, 400, fail('invalid-argument', 'licenseKey is required'));
   const found = await licenseFromKey(licenseKey);
@@ -35,6 +40,10 @@ exports.listMyDevices = onRequest(withCors(async (req, res) => {
 exports.deactivateMyDevice = onRequest(withCors(async (req, res) => {
   if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
   if (!(await requireAppCheck(req, res))) return;
+  const ip = req.ip || req.headers['x-forwarded-for'] || null;
+  if (!(await checkSelfServiceRateLimit(ip))) {
+    return sendJson(res, 429, fail('resource-exhausted', 'Too many requests. Try again later.'));
+  }
   const { licenseKey, deviceId } = req.body || {};
   if (!licenseKey || !deviceId) return sendJson(res, 400, fail('invalid-argument', 'licenseKey and deviceId are required'));
   const found = await licenseFromKey(licenseKey);
