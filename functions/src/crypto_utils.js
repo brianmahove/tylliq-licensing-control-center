@@ -1,13 +1,13 @@
-const crypto = require("crypto");
+const crypto = require('crypto');
 
 // Exact field order signed into every certificate. The Flutter client
 // (lib/license/license_crypto.dart) builds the identical JSON string by
 // hand from this same field list - do not reorder without updating both
 // sides, and bump certVersion in activation.js if the *shape* ever changes.
 const CERT_FIELD_ORDER = [
-  "licenseId", "businessId", "deviceId", "planId",
-  "issuedAt", "expiresAt", "maxDevices", "features",
-  "status", "certVersion", "serverTime",
+  'licenseId', 'businessId', 'deviceId', 'planId',
+  'issuedAt', 'expiresAt', 'maxDevices', 'features',
+  'status', 'certVersion', 'serverTime',
 ];
 
 /**
@@ -22,7 +22,7 @@ function canonicalCertJson(cert) {
     const value = cert[key] === undefined ? null : cert[key];
     return `${JSON.stringify(key)}:${JSON.stringify(value)}`;
   });
-  return `{${parts.join(",")}}`;
+  return `{${parts.join(',')}}`;
 }
 
 /**
@@ -35,16 +35,16 @@ function canonicalCertJson(cert) {
 function signCertificate(cert, privateKeyPem) {
   const payload = canonicalCertJson(cert);
   const privateKey = crypto.createPrivateKey(privateKeyPem);
-  const signature = crypto.sign(null, Buffer.from(payload, "utf8"), privateKey);
-  return { payload, signatureBase64Url: signature.toString("base64url") };
+  const signature = crypto.sign(null, Buffer.from(payload, 'utf8'), privateKey);
+  return { payload, signatureBase64Url: signature.toString('base64url') };
 }
 
 function randomToken(bytes = 32) {
-  return crypto.randomBytes(bytes).toString("base64url");
+  return crypto.randomBytes(bytes).toString('base64url');
 }
 
 function sha256Hex(value) {
-  return crypto.createHash("sha256").update(value, "utf8").digest("hex");
+  return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
 module.exports = { CERT_FIELD_ORDER, canonicalCertJson, signCertificate, randomToken, sha256Hex };

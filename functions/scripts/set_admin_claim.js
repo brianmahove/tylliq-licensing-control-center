@@ -8,18 +8,18 @@
 //
 // role is one of: super_admin | license_admin | support_admin | finance_admin | read_only
 
-const admin = require("firebase-admin");
+const admin = require('firebase-admin');
 admin.initializeApp();
 
-const VALID_ROLES = ["super_admin", "license_admin", "support_admin", "finance_admin", "read_only"];
+const VALID_ROLES = ['super_admin', 'license_admin', 'support_admin', 'finance_admin', 'read_only'];
 
 async function main() {
   const [identifier, role] = process.argv.slice(2);
   if (!identifier || !VALID_ROLES.includes(role)) {
-    console.error(`Usage: node scripts/set_admin_claim.js <uid-or-email> <${VALID_ROLES.join("|")}>`);
+    console.error(`Usage: node scripts/set_admin_claim.js <uid-or-email> <${VALID_ROLES.join('|')}>`);
     process.exit(1);
   }
-  const user = identifier.includes("@") ?
+  const user = identifier.includes('@') ?
     await admin.auth().getUserByEmail(identifier) :
     await admin.auth().getUser(identifier);
   await admin.auth().setCustomUserClaims(user.uid, { role });

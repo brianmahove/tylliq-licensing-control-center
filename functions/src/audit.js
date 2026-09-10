@@ -1,8 +1,8 @@
-const { onRequest } = require("firebase-functions/v2/https");
-const { db } = require("./firebase_admin");
-const { requireAdmin } = require("./admin_auth");
-const { ok, fail, sendJson } = require("./response_utils");
-const { withCors } = require("./cors_utils");
+const { onRequest } = require('firebase-functions/v2/https');
+const { db } = require('./firebase_admin');
+const { requireAdmin } = require('./admin_auth');
+const { ok, fail, sendJson } = require('./response_utils');
+const { withCors } = require('./cors_utils');
 
 /**
  * Records one licensing event. `meta` must never contain a raw licenseKey
@@ -15,7 +15,7 @@ const { withCors } = require("./cors_utils");
  * @param {Object} [entry.meta]
  */
 async function writeAuditLog({ type, businessId = null, licenseId = null, deviceId = null, meta = {} }) {
-  await db.collection("auditLog").add({
+  await db.collection('auditLog').add({
     type,
     businessId,
     licenseId,
@@ -31,16 +31,16 @@ async function writeAuditLog({ type, businessId = null, licenseId = null, device
 // [activation_approved, activation_rejected] client-side, rather than a
 // second duplicate log.
 exports.adminListAuditLog = onRequest(withCors(async (req, res) => {
-  if (req.method !== "POST") return sendJson(res, 405, fail("invalid-argument", "POST required"));
+  if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
   if (!(await requireAdmin(req, res))) return;
   const { businessId = null, licenseId = null, deviceId = null, type = null, limit = 50 } = req.body || {};
   const cappedLimit = Math.max(1, Math.min(Number(limit) || 50, 200));
-  let query = db.collection("auditLog");
-  if (businessId) query = query.where("businessId", "==", businessId);
-  else if (licenseId) query = query.where("licenseId", "==", licenseId);
-  else if (deviceId) query = query.where("deviceId", "==", deviceId);
-  else if (type) query = query.where("type", "==", type);
-  query = query.orderBy("at", "desc").limit(cappedLimit);
+  let query = db.collection('auditLog');
+  if (businessId) query = query.where('businessId', '==', businessId);
+  else if (licenseId) query = query.where('licenseId', '==', licenseId);
+  else if (deviceId) query = query.where('deviceId', '==', deviceId);
+  else if (type) query = query.where('type', '==', type);
+  query = query.orderBy('at', 'desc').limit(cappedLimit);
   const snap = await query.get();
   return sendJson(res, 200, ok({ events: snap.docs.map((d) => ({ id: d.id, ...d.data() })) }));
 }));

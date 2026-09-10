@@ -1,4 +1,4 @@
-const cors = require("cors")({ origin: true });
+const cors = require('cors')({ origin: true });
 
 // The Flutter app never sends browser preflight requests, but the Next.js
 // admin panel does - wrap every onRequest handler so both work uniformly.

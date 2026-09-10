@@ -12,7 +12,7 @@ function fail(code, message, extra = {}) {
 }
 
 function sendJson(res, status, body) {
-  res.status(status).set("content-type", "application/json").send(JSON.stringify(body));
+  res.status(status).set('content-type', 'application/json').send(JSON.stringify(body));
 }
 
 module.exports = { ok, fail, sendJson };

@@ -1,4 +1,4 @@
-const admin = require("firebase-admin");
+const admin = require('firebase-admin');
 
 // Default init: picks up the deployed Function's service account in
 // production, or GOOGLE_APPLICATION_CREDENTIALS / emulator config locally.
