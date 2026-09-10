@@ -50,6 +50,7 @@ const state = {
   businessDetail: null,
   backupModal: false, restoreFile: null,
   prefs: loadPrefs(),
+  cache: {},
 };
 
 const app = document.querySelector('#app');
@@ -130,7 +131,15 @@ function renderLogin(error = '', info = '') {
 
 // ---------- data loading per view ----------
 
-async function loadViewData() {
+async function loadViewData(force = false) {
+  if (!force && state.cache[state.view]) {
+    state.data = state.cache[state.view];
+    state.notifOpen = false;
+    state.accountOpen = false;
+    renderApp();
+    return;
+  }
+  if (force) state.cache = {};
   state.loading = true;
   state.notifOpen = false;
   state.accountOpen = false;
@@ -179,6 +188,7 @@ async function loadViewData() {
       const b = await apiCall('adminListBusinesses', { limit: 100 });
       state.data = { events: e.events, businesses: b.businesses };
     }
+    state.cache[state.view] = state.data;
   } catch (error) {
     state.data = { error: error.message };
   }
@@ -967,7 +977,7 @@ function parseList(raw) {
 
 async function refreshCurrentView() {
   if (state.view === 'business-detail' && state.businessDetail) await loadBusinessDetail(state.businessDetail.id, state.businessDetail.tab);
-  else await loadViewData();
+  else await loadViewData(true);
 }
 
 async function submitEntityForm(form) {

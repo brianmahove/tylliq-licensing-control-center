@@ -17,19 +17,19 @@ button { cursor:pointer; }
 @keyframes spin { to { transform:rotate(360deg); } }
 
 /* ---------- login ---------- */
-.login-shell { min-height:100vh; display:grid; grid-template-columns:minmax(380px, 1fr) 1fr; background:var(--paper); }
-.login-panel { max-width:560px; padding:10vh 9vw; display:flex; flex-direction:column; justify-content:center; }
+.login-shell { height:100vh; height:100dvh; display:grid; grid-template-columns:minmax(380px, 1fr) 1fr; background:var(--paper); overflow:hidden; }
+.login-panel { max-width:560px; padding:clamp(16px, 5vh, 10vh) clamp(20px, 6vw, 9vw); display:flex; flex-direction:column; justify-content:center; overflow-y:auto; min-height:0; }
 .brand-mark { width:48px; height:48px; display:grid; place-items:center; color:#fff; background:var(--blue); border-radius:10px; margin-bottom:42px; box-shadow:0 8px 16px #0878d12c; }
 .brand-mark.small { width:29px; height:29px; margin:0; }
 .brand-mark .icon { width:27px; height:27px; }
 .brand-mark.small .icon { width:17px; height:17px; }
-.login-brand { display:flex; align-items:center; gap:12px; margin-bottom:38px; font-size:15px; }
+.login-brand { display:flex; align-items:center; gap:12px; margin-bottom:clamp(10px, 3.5vh, 38px); font-size:15px; flex:none; }
 .login-brand .brand-mark { margin:0; }
 .eyebrow, .breadcrumb, .nav-label { color:var(--muted); font:500 11px 'DM Mono', monospace; letter-spacing:1.4px; }
-.login-panel h1 { margin:16px 0; font-size:clamp(40px,5vw,66px); line-height:1.04; letter-spacing:-2px; }
+.login-panel h1 { margin:clamp(6px, 2vh, 16px) 0; font-size:clamp(28px, min(5vw, 4.5vh), 66px); line-height:1.04; letter-spacing:-2px; flex:none; }
 .login-panel h1 em { color:var(--blue); font-style:normal; }
-.login-copy { max-width:380px; color:#73776f; line-height:1.7; font-size:15px; margin:0 0 36px; }
-.login-form { display:grid; gap:17px; max-width:370px; }
+.login-copy { max-width:380px; color:#73776f; line-height:1.6; font-size:clamp(13px, 2vh, 15px); margin:0 0 clamp(10px, 3vh, 36px); flex:none; }
+.login-form { display:grid; gap:clamp(8px, 1.8vh, 17px); max-width:370px; flex:none; }
 label { color:#535750; font-size:12px; font-weight:700; display:grid; gap:8px; }
 input, select { border:1px solid var(--line); border-radius:6px; background:#fff; padding:14px 15px; color:var(--ink); outline:0; width:100%; }
 input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px #0878d11c; }
@@ -39,7 +39,7 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px #0878
 .primary-button:disabled { opacity:.6; cursor:wait; transform:none; }
 .primary-button.danger-button { background:var(--rose); }
 .primary-button.danger-button:hover { background:#c94549; }
-.login-hint { color:#9b9b91; font:11px 'DM Mono', monospace; margin-top:40px; }
+.login-hint { color:#9b9b91; font:11px 'DM Mono', monospace; margin-top:clamp(10px, 3vh, 40px); flex:none; }
 .form-error { color:var(--rose); font-size:12px; margin:0; }
 .form-info { color:var(--green); font-size:12px; margin:0; }
 .password-field { display:flex; gap:8px; align-items:center; }
@@ -49,7 +49,7 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px #0878
 .check-label { display:flex; align-items:center; gap:7px; font-size:11px; font-weight:500; }
 .check-label input { width:14px; height:14px; padding:0; }
 .text-button, .admin-menu { border:0; background:transparent; color:var(--blue); font-size:11px; padding:0; }
-.login-art { position:relative; overflow:hidden; background:#dcecf8; min-height:100vh; }
+.login-art { position:relative; overflow:hidden; background:#dcecf8; height:100%; }
 .art-grid { position:absolute; inset:0; opacity:.55; background:linear-gradient(90deg,transparent 49.8%,#b5d6ed 50%,transparent 50.2%),linear-gradient(transparent 49.8%,#b5d6ed 50%,transparent 50.2%); background-size:90px 90px; transform:rotate(-12deg) scale(1.5); }
 .art-note { position:absolute; right:12%; top:15%; color:var(--blue); font:500 42px 'DM Mono'; line-height:.9; }
 .art-note small { font-size:10px; color:var(--ink); letter-spacing:1px; }
@@ -282,7 +282,7 @@ tr.clickable-row:hover td { background:#fbfdfe; }
 @media (max-width:850px) {
   .login-shell { grid-template-columns:1fr; }
   .login-art { display:none; }
-  .login-panel { padding:45px 8vw; }
+  .login-panel { padding:clamp(14px, 4vh, 45px) 8vw; max-width:100%; }
   .app-shell { grid-template-columns:1fr; }
   .sidebar { position:fixed; inset:0 auto 0 0; width:240px; transform:translateX(-100%); transition:transform .2s ease; }
   .sidebar.open { transform:translateX(0); }

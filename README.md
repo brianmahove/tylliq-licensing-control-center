@@ -29,6 +29,21 @@ requires a Firebase Auth custom-claim role (see `src/admin_auth.js`).
 5. Grant yourself an admin role: `node scripts/set_admin_claim.js`.
 6. Deploy: `npm --prefix functions run deploy`.
 
+## Admin console (frontend)
+
+The admin console is a Vite app in `frontend/` that talks directly to the
+deployed Cloud Functions (`frontend/src/api.js`), so it works against
+production without the emulator running.
+
+```
+cd frontend
+npm install
+![alt text](image.png)
+```
+
+This starts the dev server at `http://127.0.0.1:5174`. Sign in with an
+account that has an admin role set (see step 5 above).
+
 ## Billing plan: on Blaze
 
 This project runs on the **Blaze (pay-as-you-go)** plan — required for Cloud
