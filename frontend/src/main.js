@@ -837,13 +837,20 @@ function licenseFields(presetBusinessId) {
     <label>Enabled features (comma-separated)<input name="features" placeholder="pos, inventory, reports" /></label>`;
 }
 
-function planFields(entity) {
+function featuresPicklist(features, selected) {
+  if (!features) return '<p class="modal-copy">Loading features...</p>';
+  if (!features.length) return '<p class="modal-copy">No features defined yet. Add one on the Features page first.</p>';
+  const selectedKeys = new Set(selected || []);
+  return features.map((f) => `<label class="check-label"><input type="checkbox" name="features" value="${escapeHtml(f.key)}" ${selectedKeys.has(f.key) ? 'checked' : ''} /> ${escapeHtml(f.label)} <span class="muted mono">(${escapeHtml(f.key)})</span></label>`).join('');
+}
+
+function planFields(entity, features) {
   return `<label>Plan ID (unique)<input name="planId" placeholder="e.g. pro_monthly" value="${escapeHtml(entity?.planId || '')}" ${entity ? 'readonly' : ''} required /></label>
     <label>Plan name<input name="name" placeholder="Plan name" value="${escapeHtml(entity?.name || '')}" required /></label>
     <label>Price (USD)<input name="price" type="number" min="0" step="0.01" placeholder="0.00" value="${entity ? (entity.priceCents || 0) / 100 : ''}" /></label>
     <label>Maximum devices<input name="maxDevices" type="number" min="1" placeholder="Maximum devices" value="${entity?.maxDevices || ''}" required /></label>
     <label>Billing period<select name="billingPeriod"><option value="monthly" ${entity?.billingPeriod === 'monthly' || !entity ? 'selected' : ''}>Monthly</option><option value="yearly" ${entity?.billingPeriod === 'yearly' ? 'selected' : ''}>Yearly</option></select></label>
-    <label>Enabled features (comma-separated)<input name="features" placeholder="pos, inventory, reports" value="${escapeHtml((entity?.features || []).join(', '))}" /></label>
+    <div class="field-group"><span class="field-title">Enabled features</span><div class="picklist">${featuresPicklist(features, entity?.features)}</div></div>
     ${entity ? `<label>Status<select name="status"><option value="active" ${entity.status === 'active' || !entity.status ? 'selected' : ''}>Active</option><option value="archived" ${entity.status === 'archived' ? 'selected' : ''}>Archived</option></select></label>` : ''}`;
 }
 
@@ -884,8 +891,8 @@ function modalFieldsHtml() {
   const business = state.modalEntity?.businessId;
   if (kind === 'business') return businessFields();
   if (kind === 'license') return licenseFields(business);
-  if (kind === 'plan') return planFields();
-  if (kind === 'plan-edit') return planFields(state.modalEntity);
+  if (kind === 'plan') return planFields(null, state.modalLookups?.features);
+  if (kind === 'plan-edit') return planFields(state.modalEntity, state.modalLookups?.features);
   if (kind === 'feature') return featureFields();
   if (kind === 'payment') return paymentFields(business);
   if (kind === 'manage-license') return state.modalLookups ? manageLicenseFields(state.modalEntity, state.modalLookups.plans) : '<p class="modal-copy">Loading...</p>';
@@ -982,6 +989,10 @@ function openModal(kind, entity) {
     apiCall('adminListPlans')
       .then((result) => { state.modalLookups = { plans: result.plans }; renderApp(); })
       .catch((error) => { state.modalError = error.message; renderApp(); });
+  } else if (kind === 'plan' || kind === 'plan-edit') {
+    apiCall('adminListFeatures')
+      .then((result) => { state.modalLookups = { features: result.features }; renderApp(); })
+      .catch((error) => { state.modalError = error.message; renderApp(); });
   }
 }
 
@@ -1015,14 +1026,14 @@ async function submitEntityForm(form) {
     } else if (state.modal === 'plan') {
       await apiCall('adminCreatePlan', {
         planId: data.get('planId'), name: data.get('name'), priceCents: Math.round(Number(data.get('price') || 0) * 100),
-        maxDevices: Number(data.get('maxDevices')), billingPeriod: data.get('billingPeriod'), features: parseList(data.get('features')),
+        maxDevices: Number(data.get('maxDevices')), billingPeriod: data.get('billingPeriod'), features: data.getAll('features'),
       });
       showToast('Plan created successfully');
       closeModal();
     } else if (state.modal === 'plan-edit') {
       await apiCall('adminUpdatePlan', {
         planId: state.modalEntity.planId, name: data.get('name'), priceCents: Math.round(Number(data.get('price') || 0) * 100),
-        maxDevices: Number(data.get('maxDevices')), billingPeriod: data.get('billingPeriod'), features: parseList(data.get('features')), status: data.get('status'),
+        maxDevices: Number(data.get('maxDevices')), billingPeriod: data.get('billingPeriod'), features: data.getAll('features'), status: data.get('status'),
       });
       showToast('Plan updated successfully');
       closeModal();

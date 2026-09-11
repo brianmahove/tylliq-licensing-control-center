@@ -48,6 +48,9 @@ input:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px #0878
 .form-row { display:flex; justify-content:space-between; align-items:center; gap:12px; }
 .check-label { display:flex; align-items:center; gap:7px; font-size:11px; font-weight:500; }
 .check-label input { width:14px; height:14px; padding:0; }
+.field-group { color:#535750; font-size:12px; font-weight:700; display:grid; gap:8px; }
+.field-title { display:block; }
+.picklist { display:grid; gap:10px; border:1px solid var(--line); border-radius:6px; padding:12px 15px; }
 .text-button, .admin-menu { border:0; background:transparent; color:var(--blue); font-size:11px; padding:0; }
 .login-art { position:relative; overflow:hidden; background:#dcecf8; height:100%; }
 .art-grid { position:absolute; inset:0; opacity:.55; background:linear-gradient(90deg,transparent 49.8%,#b5d6ed 50%,transparent 50.2%),linear-gradient(transparent 49.8%,#b5d6ed 50%,transparent 50.2%); background-size:90px 90px; transform:rotate(-12deg) scale(1.5); }

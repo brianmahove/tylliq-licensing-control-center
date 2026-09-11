@@ -12,7 +12,10 @@
 //
 // Usage:
 //   node scripts/admin_cli.js create-business --name "ABC Hardware" --email owner@abc.com
+//   node scripts/admin_cli.js create-feature --key sync --label "Multi-device sync"
+//   node scripts/admin_cli.js list-features
 //   node scripts/admin_cli.js create-plan --plan-id professional --name Professional --max-devices 3
+//   node scripts/admin_cli.js list-plans
 //   node scripts/admin_cli.js create-license --business-id <id> --plan professional --max-devices 3 --days 365
 //   node scripts/admin_cli.js create-license --business-id <id> --plan professional --max-devices 3 --perpetual
 //   node scripts/admin_cli.js create-license --business-id <id> --trial
@@ -71,6 +74,16 @@ async function createPlan(args) {
     status: 'active', createdAt: now, updatedAt: now,
   });
   console.log(`Plan created: ${planId}`);
+}
+
+async function createFeature(args) {
+  const key = args.key;
+  if (!key || !args.label || !/^[a-z0-9_]+$/.test(key)) throw new Error('--key (lowercase_snake_case) and --label are required');
+  const ref = db.collection('features').doc(key);
+  if ((await ref.get()).exists) throw new Error('A feature with this key already exists.');
+  const now = new Date().toISOString();
+  await ref.set({ label: args.label, description: args.description || null, productId: args.product || null, createdAt: now, updatedAt: now });
+  console.log(`Feature created: ${key}`);
 }
 
 async function createLicense(args) {
@@ -169,6 +182,24 @@ async function deactivateDevice(args) {
   console.log(`Device ${deviceId} deactivated.`);
 }
 
+async function listPlans() {
+  const snap = await db.collection('plans').orderBy('createdAt', 'asc').get();
+  snap.docs.forEach((d) => {
+    const v = d.data();
+    console.log(`${d.id.padEnd(16)} ${String(v.name).padEnd(24)} devices=${v.maxDevices}  price=${v.priceCents}${v.currency}/${v.billingPeriod}  status=${v.status}  features=[${(v.features || []).join(', ')}]`);
+  });
+  console.log(`${snap.size} plan(s).`);
+}
+
+async function listFeatures() {
+  const snap = await db.collection('features').orderBy('createdAt', 'asc').get();
+  snap.docs.forEach((d) => {
+    const v = d.data();
+    console.log(`${d.id.padEnd(20)} ${v.label}`);
+  });
+  console.log(`${snap.size} feature(s).`);
+}
+
 async function listAudit(args) {
   const limit = parseInt(args.limit || '50', 10);
   let query = db.collection('auditLog').orderBy('at', 'desc').limit(limit);
@@ -185,12 +216,15 @@ async function listAudit(args) {
 const COMMANDS = {
   'create-business': createBusiness,
   'create-plan': createPlan,
+  'create-feature': createFeature,
   'create-license': createLicense,
   'reset-trial': resetTrial,
   'renew-license': renewLicense,
   'set-status': setStatus,
   'list-devices': listDevices,
   'deactivate-device': deactivateDevice,
+  'list-plans': listPlans,
+  'list-features': listFeatures,
   'list-audit': listAudit,
 };
 
