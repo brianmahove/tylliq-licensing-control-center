@@ -6,6 +6,7 @@ const { withCors } = require('./cors_utils');
 const { writeAuditLog } = require('./audit');
 const { randomToken, sha256Hex } = require('./crypto_utils');
 const { redactLicense } = require('./redact');
+const { mintTrialLicenseFields, resetTrialClaim } = require('./trial');
 
 const VALID_STATUSES = ['active', 'suspended', 'revoked', 'expired'];
 const WRITE_ROLES = ['super_admin', 'license_admin'];
@@ -18,9 +19,15 @@ exports.adminCreateLicense = onRequest(withCors(async (req, res) => {
   if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
   const admin_ = await requireRole(req, res, WRITE_ROLES);
   if (!admin_) return;
-  const { businessId, planId, maxDevices, features = [], expiresAt = null, startDate = null } = req.body || {};
-  if (!businessId || !planId || !Number.isInteger(maxDevices) || maxDevices < 1) {
-    return sendJson(res, 400, fail('invalid-argument', 'businessId, planId, and a positive integer maxDevices are required'));
+  const { businessId, planId, maxDevices, features = [], expiresAt = null, startDate = null, trial = false } = req.body || {};
+  if (!businessId) return sendJson(res, 400, fail('invalid-argument', 'businessId is required'));
+  // Trial keys reuse this same creation path (see functions/src/trial.js) -
+  // planId/maxDevices/expiresAt/features are fixed by mintTrialLicenseFields
+  // (features mirror the starter plan, never whatever `features` the caller
+  // passed), so there's no way to mint a "trial" with a longer window, more
+  // devices, or richer features than starter by passing different fields.
+  if (!trial && (!planId || !Number.isInteger(maxDevices) || maxDevices < 1)) {
+    return sendJson(res, 400, fail('invalid-argument', 'planId, and a positive integer maxDevices are required'));
   }
   const businessSnap = await db.collection('businesses').doc(businessId).get();
   if (!businessSnap.exists) return sendJson(res, 404, fail('not-found', 'Business not found'));
@@ -33,20 +40,22 @@ exports.adminCreateLicense = onRequest(withCors(async (req, res) => {
   const licenseKeyHash = sha256Hex(licenseKey);
   const ref = db.collection('licenses').doc();
   const now = new Date();
+  const issuedAt = startDate ? new Date(startDate) : now;
+  const planFields = trial
+    ? await mintTrialLicenseFields(db, issuedAt)
+    : { planId, maxDevices, expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null };
   await ref.set({
     businessId,
-    planId,
     status: 'active',
-    maxDevices,
     features: Array.isArray(features) ? features : [],
     licenseKeyHash,
-    issuedAt: startDate ? new Date(startDate).toISOString() : now.toISOString(),
-    expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null,
+    issuedAt: issuedAt.toISOString(),
     version: 1,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
+    ...planFields,
   });
-  await writeAuditLog({ type: 'license_created', businessId, licenseId: ref.id, meta: { planId, maxDevices, by: admin_.uid } });
+  await writeAuditLog({ type: 'license_created', businessId, licenseId: ref.id, meta: { planId: planFields.planId, maxDevices: planFields.maxDevices, isTrial: !!trial, by: admin_.uid } });
   return sendJson(res, 200, ok({ licenseId: ref.id, licenseKey }));
 }));
 
@@ -63,6 +72,13 @@ exports.adminUpdateLicense = onRequest(withCors(async (req, res) => {
   const snap = await ref.get();
   if (!snap.exists) return sendJson(res, 404, fail('not-found', 'License not found'));
   const current = snap.data();
+  // No grace extension and no path back to active for a trial except a real
+  // paid activation with a real licenseKey (a fresh adminCreateLicense call
+  // for this businessId) - not editing this record in place. Suspending or
+  // revoking an abusive trial is still done via adminSetLicenseStatus.
+  if (current.isTrial) {
+    return sendJson(res, 400, fail('failed-precondition', 'Trial licenses cannot be modified. To suspend/revoke it, use adminSetLicenseStatus; to give this business a paid plan, issue a new license.'));
+  }
 
   const updates = { updatedAt: new Date().toISOString(), version: (current.version || 1) + 1 };
   if (extendDays !== undefined) {
@@ -120,6 +136,27 @@ exports.adminRegenerateLicenseKey = onRequest(withCors(async (req, res) => {
   await ref.update({ licenseKeyHash, updatedAt: new Date().toISOString(), version: (current.version || 1) + 1 });
   await writeAuditLog({ type: 'license_key_regenerated', businessId: current.businessId, licenseId, meta: { by: admin_.uid } });
   return sendJson(res, 200, ok({ licenseId, licenseKey }));
+}));
+
+exports.adminResetTrialActivation = onRequest(withCors(async (req, res) => {
+  // See resetTrialClaim's doc comment in trial.js: recovers a trial device
+  // whose activation succeeded server-side but whose response never
+  // reached the app, without granting a new trial or letting a different
+  // device claim it. Use sparingly - this is a manual override, not part
+  // of the normal flow, so every use is logged distinctly below.
+  if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
+  const admin_ = await requireRole(req, res, WRITE_ROLES);
+  if (!admin_) return;
+  const { licenseId } = req.body || {};
+  if (!licenseId) return sendJson(res, 400, fail('invalid-argument', 'licenseId is required'));
+  let outcome;
+  try {
+    outcome = await resetTrialClaim(db, licenseId);
+  } catch (err) {
+    return sendJson(res, 400, fail('failed-precondition', err.message));
+  }
+  await writeAuditLog({ type: 'trial_activation_reset', businessId: outcome.businessId, licenseId, deviceId: outcome.deviceId, meta: { by: admin_.uid } });
+  return sendJson(res, 200, ok({ licenseId, clearedDeviceId: outcome.deviceId }));
 }));
 
 exports.adminGetLicense = onRequest(withCors(async (req, res) => {

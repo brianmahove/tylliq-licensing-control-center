@@ -15,6 +15,8 @@
 //   node scripts/admin_cli.js create-plan --plan-id professional --name Professional --max-devices 3
 //   node scripts/admin_cli.js create-license --business-id <id> --plan professional --max-devices 3 --days 365
 //   node scripts/admin_cli.js create-license --business-id <id> --plan professional --max-devices 3 --perpetual
+//   node scripts/admin_cli.js create-license --business-id <id> --trial
+//   node scripts/admin_cli.js reset-trial --license-id <id>
 //   node scripts/admin_cli.js renew-license --license-id <id> --days 365
 //   node scripts/admin_cli.js set-status --license-id <id> --status suspended
 //   node scripts/admin_cli.js list-devices --license-id <id>
@@ -25,6 +27,7 @@ const admin = require('firebase-admin');
 admin.initializeApp();
 const db = admin.firestore();
 const { randomToken, sha256Hex } = require('../src/crypto_utils');
+const { mintTrialLicenseFields, resetTrialClaim } = require('../src/trial');
 
 function parseArgs(argv) {
   const args = {};
@@ -72,24 +75,53 @@ async function createPlan(args) {
 
 async function createLicense(args) {
   const businessId = args['business-id'];
-  const planId = args.plan;
-  const maxDevices = parseInt(args['max-devices'], 10);
-  if (!businessId || !planId || !maxDevices) throw new Error('--business-id, --plan, --max-devices are required');
+  if (!businessId) throw new Error('--business-id is required');
   const businessSnap = await db.collection('businesses').doc(businessId).get();
   if (!businessSnap.exists) throw new Error('Business not found');
+
+  const now = new Date();
+  let planFields;
+  if (args.trial) {
+    // Same "mint a license" path as a paid plan - just with plan/device
+    // limit/expiry/features fixed by mintTrialLicenseFields instead of
+    // taken from flags, so there's no --days, --max-devices, or --features
+    // to fat-finger into a longer or richer trial. Single-use enforcement
+    // lives server-side in activation.js.
+    if (args.features) {
+      console.warn('--features is ignored for --trial: a trial always gets exactly the "starter" plan\'s features.');
+    }
+    planFields = await mintTrialLicenseFields(db, now);
+  } else {
+    const planId = args.plan;
+    const maxDevices = parseInt(args['max-devices'], 10);
+    if (!planId || !maxDevices) throw new Error('--plan and --max-devices are required (or pass --trial)');
+    const expiresAt = args.perpetual ? null : new Date(now.getTime() + (parseInt(args.days || '365', 10)) * 86400000).toISOString();
+    const features = args.features ? args.features.split(',').map((f) => f.trim()) : [];
+    planFields = { planId, maxDevices, expiresAt, features };
+  }
+
   const licenseKey = `LIC-${randomToken(20)}`;
   const ref = db.collection('licenses').doc();
-  const now = new Date();
-  const expiresAt = args.perpetual ? null : new Date(now.getTime() + (parseInt(args.days || '365', 10)) * 86400000).toISOString();
-  const features = args.features ? args.features.split(',').map((f) => f.trim()) : [];
   await ref.set({
-    businessId, planId, status: 'active', maxDevices, features,
+    businessId, status: 'active',
     licenseKeyHash: sha256Hex(licenseKey),
-    issuedAt: now.toISOString(), expiresAt, version: 1,
+    issuedAt: now.toISOString(), version: 1,
     createdAt: now.toISOString(), updatedAt: now.toISOString(),
+    ...planFields,
   });
   console.log(`License created: ${ref.id}`);
   console.log(`License key (shown once - give this to the customer): ${licenseKey}`);
+  if (args.trial) {
+    console.log(`Trial: expires ${planFields.expiresAt} (7 days), 1 device, features=[${planFields.features.join(', ')}] (same as starter), single-use - activates exactly once, ever.`);
+  }
+}
+
+async function resetTrial(args) {
+  const licenseId = args['license-id'];
+  if (!licenseId) throw new Error('--license-id is required');
+  const { deviceId } = await resetTrialClaim(db, licenseId);
+  console.log(`Trial ${licenseId} un-claimed from device ${deviceId}.`);
+  console.log('That device can activate it again - same license, same original 7-day expiry, still single-use.');
 }
 
 async function renewLicense(args) {
@@ -154,6 +186,7 @@ const COMMANDS = {
   'create-business': createBusiness,
   'create-plan': createPlan,
   'create-license': createLicense,
+  'reset-trial': resetTrial,
   'renew-license': renewLicense,
   'set-status': setStatus,
   'list-devices': listDevices,
