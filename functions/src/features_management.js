@@ -26,6 +26,21 @@ exports.adminCreateFeature = onRequest(withCors(async (req, res) => {
   return sendJson(res, 200, ok({ key }));
 }));
 
+exports.adminUpdateFeature = onRequest(withCors(async (req, res) => {
+  if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
+  const admin_ = await requireRole(req, res, WRITE_ROLES);
+  if (!admin_) return;
+  const { key, ...patch } = req.body || {};
+  if (!key) return sendJson(res, 400, fail('invalid-argument', 'key is required'));
+  const ref = db.collection('features').doc(key);
+  if (!(await ref.get()).exists) return sendJson(res, 404, fail('not-found', 'Feature not found'));
+  delete patch.createdAt;
+  delete patch.key;
+  await ref.update({ ...patch, updatedAt: new Date().toISOString() });
+  await writeAuditLog({ type: 'feature_updated', meta: { key, patch, by: admin_.uid } });
+  return sendJson(res, 200, ok({ key }));
+}));
+
 exports.adminListFeatures = onRequest(withCors(async (req, res) => {
   if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
   if (!(await requireAdmin(req, res))) return;

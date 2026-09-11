@@ -644,16 +644,17 @@ function featuresView() {
   if (state.loading) return '<div class="loading">Loading features<span>...</span></div>';
   if (!state.data || state.data.error) return `<div class="empty-state"><strong>${escapeHtml(state.data?.error || 'No data loaded')}</strong><button type="button" class="secondary-button" data-action="refresh">Retry</button></div>`;
   const rows = (state.data.features || []).filter((r) => matchesSearch(r, state.filters.search));
-  const body = rows.length ? rows.map((f) => `<tr>
+  const body = rows.length ? rows.map((f) => `<tr class="clickable-row" data-action="open-modal" data-kind="feature-edit" data-id="${escapeHtml(f.key)}">
     <td class="mono">${escapeHtml(f.key)}</td>
     <td>${escapeHtml(f.label)}</td>
     <td>${escapeHtml(f.productId || '—')}</td>
     <td>${escapeHtml(formatDate(f.createdAt))}</td>
-  </tr>`).join('') : `<tr><td colspan="4" class="blank"><span class="empty-icon">${icon('features')}</span><strong>No features yet</strong><small>Define features to attach them to plans and licenses.</small></td></tr>`;
+    <td class="row-actions">${iconButton('open-modal', 'pencil', 'Edit feature', `data-kind="feature-edit" data-id="${escapeHtml(f.key)}"`)}</td>
+  </tr>`).join('') : `<tr><td colspan="5" class="blank"><span class="empty-icon">${icon('features')}</span><strong>No features yet</strong><small>Click "Add default features" for a ready-made starter set, or add your own.</small></td></tr>`;
   return `<section class="panel table-panel">
-    <div class="panel-heading"><div><p class="eyebrow">DIRECTORY</p><h2>Features</h2></div><div class="panel-actions"><button type="button" class="primary-button compact-button" data-action="open-modal" data-kind="feature">${icon('plus')}Add Feature</button></div></div>
+    <div class="panel-heading"><div><p class="eyebrow">DIRECTORY</p><h2>Features</h2></div><div class="panel-actions"><button type="button" class="secondary-button compact-button" data-action="seed-default-features">Add default features</button><button type="button" class="primary-button compact-button" data-action="open-modal" data-kind="feature">${icon('plus')}Add Feature</button></div></div>
     <div class="table-tools"><input class="table-search" data-action="search" value="${escapeHtml(state.filters.search)}" placeholder="Search features..." /></div>
-    <div class="table-wrap"><table><thead><tr><th>Key</th><th>Label</th><th>Product</th><th>Created</th></tr></thead><tbody>${body}</tbody></table></div>
+    <div class="table-wrap"><table><thead><tr><th>Key</th><th>Label</th><th>Product</th><th>Created</th><th>Actions</th></tr></thead><tbody>${body}</tbody></table></div>
   </section>`;
 }
 
@@ -827,14 +828,14 @@ function businessFields() {
 
 function licenseFields(presetBusinessId) {
   if (!state.modalLookups) return '<p class="modal-copy">Loading businesses and plans...</p>';
-  const { businesses, plans } = state.modalLookups;
+  const { businesses, plans, features } = state.modalLookups;
   return `<label>Business<select name="businessId" required ${presetBusinessId ? 'disabled' : ''}>${optionList(businesses, 'businessId', 'name', 'Select business', presetBusinessId)}</select></label>
     ${presetBusinessId ? `<input type="hidden" name="businessId" value="${escapeHtml(presetBusinessId)}" />` : ''}
     <label>Plan<select name="planId" required>${optionList(plans, 'planId', 'name', 'Select plan')}</select></label>
     <label>Maximum devices<input name="maxDevices" type="number" min="1" placeholder="Maximum devices" required /></label>
     <label>Start date<input name="startDate" type="date" /></label>
     <label>Expiry date<input name="expiresAt" type="date" /></label>
-    <label>Enabled features (comma-separated)<input name="features" placeholder="pos, inventory, reports" /></label>`;
+    <div class="field-group"><span class="field-title">Enabled features</span><div class="picklist">${featuresPicklist(features)}</div></div>`;
 }
 
 function featuresPicklist(features, selected) {
@@ -854,11 +855,11 @@ function planFields(entity, features) {
     ${entity ? `<label>Status<select name="status"><option value="active" ${entity.status === 'active' || !entity.status ? 'selected' : ''}>Active</option><option value="archived" ${entity.status === 'archived' ? 'selected' : ''}>Archived</option></select></label>` : ''}`;
 }
 
-function featureFields() {
-  return `<label>Key (lowercase_snake_case)<input name="key" placeholder="e.g. inventory_reports" required /></label>
-    <label>Label<input name="label" placeholder="Human-readable label" required /></label>
-    <label>Description<input name="description" placeholder="Optional description" /></label>
-    <label>Product ID<input name="productId" placeholder="Optional product id" /></label>`;
+function featureFields(entity) {
+  return `<label>Key (lowercase_snake_case)<input name="key" placeholder="e.g. inventory_reports" value="${escapeHtml(entity?.key || '')}" ${entity ? 'readonly' : ''} required /></label>
+    <label>Label<input name="label" placeholder="Human-readable label" value="${escapeHtml(entity?.label || '')}" required /></label>
+    <label>Description<input name="description" placeholder="Optional description" value="${escapeHtml(entity?.description || '')}" /></label>
+    <label>Product ID<input name="productId" placeholder="Optional product id" value="${escapeHtml(entity?.productId || '')}" /></label>`;
 }
 
 function paymentFields(presetBusinessId) {
@@ -883,7 +884,7 @@ function manageLicenseFields(license, plans) {
 }
 
 function modalTitle(kind) {
-  return { business: 'Add Business', license: 'Issue License', plan: 'Add Plan', 'plan-edit': 'Edit Plan', feature: 'Add Feature', payment: 'Record Payment', 'manage-license': 'Manage License' }[kind] || 'Add record';
+  return { business: 'Add Business', license: 'Issue License', plan: 'Add Plan', 'plan-edit': 'Edit Plan', feature: 'Add Feature', 'feature-edit': 'Edit Feature', payment: 'Record Payment', 'manage-license': 'Manage License' }[kind] || 'Add record';
 }
 
 function modalFieldsHtml() {
@@ -894,6 +895,7 @@ function modalFieldsHtml() {
   if (kind === 'plan') return planFields(null, state.modalLookups?.features);
   if (kind === 'plan-edit') return planFields(state.modalEntity, state.modalLookups?.features);
   if (kind === 'feature') return featureFields();
+  if (kind === 'feature-edit') return featureFields(state.modalEntity);
   if (kind === 'payment') return paymentFields(business);
   if (kind === 'manage-license') return state.modalLookups ? manageLicenseFields(state.modalEntity, state.modalLookups.plans) : '<p class="modal-copy">Loading...</p>';
   return '';
@@ -977,8 +979,8 @@ function openModal(kind, entity) {
     apiCall('adminListBusinesses', { limit: 100 })
       .then(async (businessesResult) => {
         if (kind === 'license') {
-          const plansResult = await apiCall('adminListPlans');
-          state.modalLookups = { businesses: businessesResult.businesses, plans: plansResult.plans };
+          const [plansResult, featuresResult] = await Promise.all([apiCall('adminListPlans'), apiCall('adminListFeatures')]);
+          state.modalLookups = { businesses: businessesResult.businesses, plans: plansResult.plans, features: featuresResult.features };
         } else {
           state.modalLookups = { businesses: businessesResult.businesses };
         }
@@ -1002,10 +1004,6 @@ function closeModal() {
   state.modalLookups = null;
   state.modalEntity = null;
   renderApp();
-}
-
-function parseList(raw) {
-  return (raw || '').split(',').map((v) => v.trim()).filter(Boolean);
 }
 
 async function refreshCurrentView() {
@@ -1041,6 +1039,10 @@ async function submitEntityForm(form) {
       await apiCall('adminCreateFeature', { key: data.get('key'), label: data.get('label'), description: data.get('description') || null, productId: data.get('productId') || null });
       showToast('Feature created successfully');
       closeModal();
+    } else if (state.modal === 'feature-edit') {
+      await apiCall('adminUpdateFeature', { key: state.modalEntity.key, label: data.get('label'), description: data.get('description') || null, productId: data.get('productId') || null });
+      showToast('Feature updated successfully');
+      closeModal();
     } else if (state.modal === 'payment') {
       await apiCall('adminRecordPayment', { businessId: data.get('businessId'), amountCents: Math.round(Number(data.get('amount') || 0) * 100), currency: 'USD', method: data.get('method'), reference: data.get('reference') || null, notes: data.get('notes') || null });
       showToast('Payment recorded successfully');
@@ -1048,7 +1050,7 @@ async function submitEntityForm(form) {
     } else if (state.modal === 'license') {
       const result = await apiCall('adminCreateLicense', {
         businessId: data.get('businessId'), planId: data.get('planId'), maxDevices: Number(data.get('maxDevices')),
-        startDate: data.get('startDate') || null, expiresAt: data.get('expiresAt') || null, features: parseList(data.get('features')),
+        startDate: data.get('startDate') || null, expiresAt: data.get('expiresAt') || null, features: data.getAll('features'),
       });
       state.modal = null;
       state.modalLookups = null;
@@ -1091,6 +1093,28 @@ async function handleConfirmYes() {
     await refreshCurrentView();
   });
   renderApp();
+}
+
+const DEFAULT_FEATURES = [
+  { key: 'pos', label: 'Point of sale', description: 'Core checkout and transaction workflows', productId: 'tylliq-core' },
+  { key: 'inventory', label: 'Inventory', description: 'Stock levels, transfers, and adjustments', productId: 'tylliq-core' },
+  { key: 'reports', label: 'Reports', description: 'Sales and operational reporting', productId: 'tylliq-core' },
+  { key: 'multi_location', label: 'Multi-location', description: 'Manage multiple branches from one account', productId: 'tylliq-enterprise' },
+  { key: 'priority_support', label: 'Priority support', description: 'Accelerated support response times', productId: 'tylliq-enterprise' },
+];
+
+function seedDefaultFeatures() {
+  withSaving(async () => {
+    const existing = new Set((state.data?.features || []).map((f) => f.key));
+    let added = 0;
+    for (const f of DEFAULT_FEATURES) {
+      if (existing.has(f.key)) continue;
+      await apiCall('adminCreateFeature', f);
+      added++;
+    }
+    showToast(added ? `Added ${added} default feature${added === 1 ? '' : 's'}` : 'Default features are already set up');
+    await refreshCurrentView();
+  });
 }
 
 function exportBackup() {
@@ -1162,7 +1186,7 @@ function handleAction(action, target, event) {
     case 'signout': signOut(auth); return;
     case 'open-business': if (id) loadBusinessDetail(id); return;
     case 'detail-tab': if (state.businessDetail) { state.businessDetail.tab = target.dataset.tab; renderApp(); } return;
-    case 'open-modal': openModal(target.dataset.kind, target.dataset.kind === 'plan-edit' ? (state.data.plans || []).find((p) => p.planId === id) : (target.dataset.business ? { businessId: target.dataset.business } : null)); return;
+    case 'open-modal': openModal(target.dataset.kind, target.dataset.kind === 'plan-edit' ? (state.data.plans || []).find((p) => p.planId === id) : target.dataset.kind === 'feature-edit' ? (state.data.features || []).find((f) => f.key === id) : (target.dataset.business ? { businessId: target.dataset.business } : null)); return;
     case 'close-modal': if (event.target === target) closeModal(); return;
     case 'close-key-reveal': if (event.target === target) { state.revealedLicenseKey = null; renderApp(); } return;
     case 'copy-text': navigator.clipboard?.writeText(target.dataset.value || ''); showToast('Copied to clipboard'); return;
@@ -1229,6 +1253,7 @@ function handleAction(action, target, event) {
     case 'open-backup': state.backupModal = true; state.restoreFile = null; renderApp(); return;
     case 'close-backup': if (event.target === target) { state.backupModal = false; renderApp(); } return;
     case 'export-backup': exportBackup(); return;
+    case 'seed-default-features': seedDefaultFeatures(); return;
     case 'pick-file': document.getElementById('restore-file-input')?.click(); return;
     case 'restore-backup': showToast('Restoring from a backup file isn’t available yet. Contact support for assistance.', 'bad'); return;
     case 'reset-password': {
