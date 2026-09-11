@@ -67,7 +67,7 @@ nav { display:grid; gap:5px; }
 .nav-item, .signout { border:0; border-radius:5px; background:transparent; color:#9ab0c1; text-align:left; padding:10px 12px; display:flex; align-items:center; gap:11px; font-size:12px; width:100%; }
 .nav-item:hover, .nav-item.active { color:#fff; background:#0d4e83; }
 .nav-item.active { box-shadow:inset 3px 0 #38a5f6; }
-.nav-icon-svg { width:16px; height:16px; flex:none; }
+.nav-icon-svg { width:16px; height:16px; flex:none; color:#fff; }
 .sidebar-bottom { margin-top:auto; }
 .version { display:block; padding:0 9px 10px; color:#6f899e; font:9px 'DM Mono'; }
 .connection { border-top:1px solid #ffffff18; padding:18px 9px; display:flex; align-items:center; gap:10px; }
