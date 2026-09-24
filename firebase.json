@@ -8,6 +8,8 @@
         ".git",
         "firebase-debug.log",
         "firebase-debug.*.log",
+        "firestore-debug.log",
+        "serviceAccountKey.json",
         "scripts/*.local.js"
       ]
     }

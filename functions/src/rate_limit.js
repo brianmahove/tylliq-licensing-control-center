@@ -11,6 +11,12 @@ const ACTIVATION_MAX_ATTEMPTS_PER_WINDOW = 20;
 // front desk might call repeatedly.
 const SELF_SERVICE_MAX_ATTEMPTS_PER_WINDOW = 60;
 
+// Sync is called far more often than self-service (potentially every few
+// minutes per device while the app is open), and several devices for the
+// same shop can share one IP behind NAT - looser again than self-service,
+// still capped so a bug or abusive client can't run up billed invocations.
+const SYNC_MAX_ATTEMPTS_PER_WINDOW = 300;
+
 /**
  * @param {string} bucket logical name for what's being limited (e.g. "activate", "self_service")
  * @param {string|null} ip caller's IP, or null if unavailable
@@ -45,4 +51,8 @@ function checkSelfServiceRateLimit(ip) {
   return checkIpRateLimit('self_service', ip, SELF_SERVICE_MAX_ATTEMPTS_PER_WINDOW);
 }
 
-module.exports = { checkActivationRateLimit, checkSelfServiceRateLimit };
+function checkSyncRateLimit(ip) {
+  return checkIpRateLimit('sync', ip, SYNC_MAX_ATTEMPTS_PER_WINDOW);
+}
+
+module.exports = { checkActivationRateLimit, checkSelfServiceRateLimit, checkSyncRateLimit };

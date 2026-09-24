@@ -12,4 +12,5 @@ module.exports = {
   ...require('./features_management'),
   ...require('./dashboard_stats'),
   ...require('./audit'),
+  ...require('./stock_sync'),
 };
