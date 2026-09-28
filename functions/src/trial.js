@@ -99,7 +99,7 @@ async function mintTrialLicenseFields(db, issuedAt) {
  * will keep rejecting it with "trial_already_used" forever.
  *
  * This does NOT grant a new trial: it deletes the device doc and the
- * permanent trialDeviceLocks entry for the SAME device that originally
+ * permanent trialDeviceLocks / trialHardwareLocks entries for the SAME device that originally
  * claimed this SAME license, and un-claims the license, so that one device
  * can redo the handshake - same license, same 7-day expiry (already
  * ticking since original issuance), still single-use once it succeeds.
@@ -119,8 +119,15 @@ async function resetTrialClaim(db, licenseId) {
     if (!license.trialClaimedByDeviceId) throw new Error('This trial has not been claimed by any device - nothing to reset.');
 
     const deviceId = license.trialClaimedByDeviceId;
-    tx.delete(db.collection('devices').doc(deviceId));
+    const deviceRef = db.collection('devices').doc(deviceId);
+    // The hardware lock (see activateTrialDevice) must go too, or this same
+    // device could never redo the handshake - and it has to be read before any
+    // write in this transaction.
+    const deviceSnap = await tx.get(deviceRef);
+    const hardwareIdHash = deviceSnap.exists ? deviceSnap.data().hardwareIdHash : null;
+    tx.delete(deviceRef);
     tx.delete(db.collection('trialDeviceLocks').doc(deviceId));
+    if (hardwareIdHash) tx.delete(db.collection('trialHardwareLocks').doc(hardwareIdHash));
     tx.update(licenseRef, {
       trialClaimed: false,
       trialClaimedByDeviceId: null,

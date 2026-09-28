@@ -66,6 +66,21 @@ function clockIntegrityFields(clockIntegrity, now) {
   };
 }
 
+const MAX_HARDWARE_ID_LENGTH = 200;
+
+/**
+ * The device's hardware-tied id (see the client's lib/license/hardware_id.dart)
+ * survives an app reinstall, which the random per-install deviceId does not.
+ * Stored only as a hash - it is a recognition key, never displayed raw - and
+ * self-reported, so it is never a security boundary. Null when absent/invalid.
+ */
+function hardwareIdHashOf(hardwareId) {
+  if (typeof hardwareId !== 'string') return null;
+  const trimmed = hardwareId.trim();
+  if (!trimmed || trimmed.length > MAX_HARDWARE_ID_LENGTH) return null;
+  return sha256Hex(`hw:${trimmed}`);
+}
+
 async function findLicenseByKey(licenseKey) {
   const hash = sha256Hex(licenseKey);
   const snap = await db.collection('licenses').where('licenseKeyHash', '==', hash).limit(1).get();
@@ -101,18 +116,22 @@ const TRIAL_REJECTION_ERROR_CODE = {
  * {deviceId}` doc (across all trial keys ever, "has this device already
  * burned a trial") that a device deactivation/reset never clears.
  */
-async function activateTrialDevice({ res, licenseId, license, deviceId, platform, appVersion, deviceLabel, clockIntegrity, now, ip }) {
+async function activateTrialDevice({ res, licenseId, license, deviceId, hardwareIdHash, platform, appVersion, deviceLabel, clockIntegrity, now, ip }) {
   const licenseRef = db.collection('licenses').doc(licenseId);
   const deviceRef = db.collection('devices').doc(deviceId);
   const trialLockRef = db.collection('trialDeviceLocks').doc(deviceId);
+  // Same lock, keyed by hardware: a reinstall gets a new random deviceId, so
+  // the deviceId lock alone would not stop the same phone claiming another trial.
+  const trialHardwareLockRef = hardwareIdHash ? db.collection('trialHardwareLocks').doc(hardwareIdHash) : null;
 
   const result = await db.runTransaction(async (tx) => {
-    const [licenseSnap, deviceSnap, lockSnap] = await Promise.all([
+    const [licenseSnap, deviceSnap, lockSnap, hardwareLockSnap] = await Promise.all([
       tx.get(licenseRef), tx.get(deviceRef), tx.get(trialLockRef),
+      trialHardwareLockRef ? tx.get(trialHardwareLockRef) : Promise.resolve(null),
     ]);
     const freshLicense = licenseSnap.data();
     if (freshLicense.trialClaimed) return { rejected: 'trial_already_used' };
-    if (lockSnap.exists) return { rejected: 'trial_device_reuse' };
+    if (lockSnap.exists || (hardwareLockSnap && hardwareLockSnap.exists)) return { rejected: 'trial_device_reuse' };
     if (deviceSnap.exists) {
       const existing = deviceSnap.data();
       if (existing.licenseId !== licenseId || existing.businessId !== freshLicense.businessId) {
@@ -136,6 +155,7 @@ async function activateTrialDevice({ res, licenseId, license, deviceId, platform
       status: 'active',
       branchId: null,
       deactivatedAt: null,
+      ...(hardwareIdHash ? { hardwareIdHash } : {}),
       ...clockFields,
     });
     tx.update(licenseRef, {
@@ -148,6 +168,12 @@ async function activateTrialDevice({ res, licenseId, license, deviceId, platform
       deviceId, licenseId, businessId: freshLicense.businessId,
       claimedAt: now.toISOString(),
     });
+    if (trialHardwareLockRef) {
+      tx.set(trialHardwareLockRef, {
+        deviceId, licenseId, businessId: freshLicense.businessId,
+        claimedAt: now.toISOString(),
+      });
+    }
     return { rejected: null, license: freshLicense, deviceSecret, clockFields };
   });
 
@@ -178,7 +204,7 @@ async function activateTrialDevice({ res, licenseId, license, deviceId, platform
 exports.activateDevice = onRequest(withCors(async (req, res) => {
   if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
   if (!(await requireAppCheck(req, res))) return;
-  const { licenseKey, deviceId, platform, appVersion, deviceLabel = null, clockIntegrity = null } = req.body || {};
+  const { licenseKey, deviceId, platform, appVersion, deviceLabel = null, hardwareId = null, clockIntegrity = null } = req.body || {};
   if (!licenseKey || !deviceId || !platform || !appVersion) {
     return sendJson(res, 400, fail('invalid-argument', 'licenseKey, deviceId, platform, and appVersion are required'));
   }
@@ -200,8 +226,10 @@ exports.activateDevice = onRequest(withCors(async (req, res) => {
     return sendJson(res, 403, fail('failed-precondition', `This license is ${status}.`));
   }
 
+  const hardwareIdHash = hardwareIdHashOf(hardwareId);
+
   if (license.isTrial) {
-    return activateTrialDevice({ res, licenseId, license, deviceId, platform, appVersion, deviceLabel, clockIntegrity, now, ip });
+    return activateTrialDevice({ res, licenseId, license, deviceId, hardwareIdHash, platform, appVersion, deviceLabel, clockIntegrity, now, ip });
   }
 
   const deviceRef = db.collection('devices').doc(deviceId);
@@ -226,6 +254,7 @@ exports.activateDevice = onRequest(withCors(async (req, res) => {
       lastSeenAt: now.toISOString(),
       deviceSecretHash: sha256Hex(deviceSecret),
       deactivatedAt: null,
+      ...(hardwareIdHash ? { hardwareIdHash } : {}),
       ...clockFields,
     });
     const cert = buildCertificate({ license, licenseId, deviceId, now });
@@ -235,6 +264,29 @@ exports.activateDevice = onRequest(withCors(async (req, res) => {
       await writeAuditLog({ type: 'clock_tamper_suspected', businessId: license.businessId, licenseId, deviceId, meta: { ...clockFields, ip } });
     }
     return sendJson(res, 200, ok({ certificatePayload: payload, signature: signatureBase64Url, deviceSecret, serverTime: now.toISOString() }));
+  }
+
+  // Same hardware, new install (app reinstalled / data cleared): the old
+  // record is the same physical device, so retire it before the slot count
+  // below - otherwise reinstalling would burn a second slot - and carry its
+  // name over to the new record.
+  let inheritedLabel = null;
+  const previousDeviceIds = [];
+  if (hardwareIdHash) {
+    const sameHardwareSnap = await db.collection('devices')
+      .where('licenseId', '==', licenseId)
+      .where('hardwareIdHash', '==', hardwareIdHash)
+      .get();
+    const previous = sameHardwareSnap.docs
+      .filter((d) => d.id !== deviceId)
+      .sort((a, b) => String(b.data().lastSeenAt || '').localeCompare(String(a.data().lastSeenAt || '')));
+    for (const doc of previous) {
+      previousDeviceIds.push(doc.id);
+      if (!inheritedLabel && doc.data().deviceLabel) inheritedLabel = doc.data().deviceLabel;
+      if (doc.data().status === 'active') {
+        await doc.ref.update({ status: 'deactivated', deactivatedAt: now.toISOString(), replacedByDeviceId: deviceId });
+      }
+    }
   }
 
   const activeCountSnap = await db.collection('devices')
@@ -250,18 +302,21 @@ exports.activateDevice = onRequest(withCors(async (req, res) => {
   await deviceRef.set({
     businessId: license.businessId,
     licenseId,
-    platform, appVersion, deviceLabel,
+    platform, appVersion, deviceLabel: deviceLabel || inheritedLabel,
     deviceSecretHash: sha256Hex(deviceSecret),
     activatedAt: now.toISOString(),
     lastSeenAt: now.toISOString(),
     status: 'active',
     branchId: null,
     deactivatedAt: null,
+    ...(hardwareIdHash ? { hardwareIdHash } : {}),
+    ...(previousDeviceIds.length ? { replacesDeviceIds: previousDeviceIds } : {}),
     ...clockIntegrityFields(clockIntegrity, now),
   });
   const cert = buildCertificate({ license, licenseId, deviceId, now });
   const { payload, signatureBase64Url } = signCertificate(cert, LICENSE_SIGNING_PRIVATE_KEY.value());
-  await writeAuditLog({ type: 'activation_approved', businessId: license.businessId, licenseId, deviceId, meta: { ip } });
+  const recognizedMeta = previousDeviceIds.length ? { recognizedPreviousDeviceIds: previousDeviceIds } : {};
+  await writeAuditLog({ type: 'activation_approved', businessId: license.businessId, licenseId, deviceId, meta: { ip, ...recognizedMeta } });
   return sendJson(res, 200, ok({ certificatePayload: payload, signature: signatureBase64Url, deviceSecret, serverTime: now.toISOString() }));
 }), { secrets: [LICENSE_SIGNING_PRIVATE_KEY], maxInstances: PUBLIC_MAX_INSTANCES });
 
@@ -274,7 +329,7 @@ exports.activateDevice = onRequest(withCors(async (req, res) => {
 exports.revalidateDevice = onRequest(withCors(async (req, res) => {
   if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
   if (!(await requireAppCheck(req, res))) return;
-  const { deviceId, deviceSecret, clockIntegrity = null } = req.body || {};
+  const { deviceId, deviceSecret, hardwareId = null, clockIntegrity = null } = req.body || {};
   if (!deviceId || !deviceSecret) {
     return sendJson(res, 400, fail('invalid-argument', 'deviceId and deviceSecret are required'));
   }
@@ -299,7 +354,11 @@ exports.revalidateDevice = onRequest(withCors(async (req, res) => {
   const license = licenseSnap.data();
   const now = new Date();
   const clockFields = clockIntegrityFields(clockIntegrity, now);
-  await deviceRef.update({ lastSeenAt: now.toISOString(), ...clockFields });
+  // Backfills devices activated before hardware ids existed, so they are
+  // recognisable after their next check-in without having to reactivate.
+  const hardwareIdHash = hardwareIdHashOf(hardwareId);
+  const hardwareFields = hardwareIdHash && device.hardwareIdHash !== hardwareIdHash ? { hardwareIdHash } : {};
+  await deviceRef.update({ lastSeenAt: now.toISOString(), ...hardwareFields, ...clockFields });
   const cert = buildCertificate({ license, licenseId: device.licenseId, deviceId, now });
   const { payload, signatureBase64Url } = signCertificate(cert, LICENSE_SIGNING_PRIVATE_KEY.value());
   await writeAuditLog({ type: 'revalidation_succeeded', businessId: device.businessId, licenseId: device.licenseId, deviceId, meta: { status: cert.status } });

@@ -531,6 +531,14 @@ function licensesView() {
 
 // ---------- Devices ----------
 
+// Same code on two rows = the same physical device across an app reinstall
+// (see hardwareIdHashOf in functions/src/activation.js). The hash is a
+// recognition key, not a serial number, so only a short prefix is shown.
+function hardwareTag(d) {
+  if (!d.hardwareIdHash) return '';
+  return ` <small class="muted" title="Hardware ID (hashed). Rows sharing this code are the same physical device, reinstalled.">hw ${escapeHtml(d.hardwareIdHash.slice(0, 6))}</small>`;
+}
+
 function enrichDevices(data) {
   const businessById = indexBy(data.businesses, 'businessId');
   return (data.devices || []).map((d) => ({ ...d, _businessName: businessById.get(d.businessId)?.name || d.businessId }));
@@ -548,7 +556,7 @@ function devicesView() {
   const page = Math.min(state.page, totalPages);
   const pageRows = filtered.slice((page - 1) * state.pageSize, page * state.pageSize);
   const body = pageRows.length ? pageRows.map((d) => `<tr class="clickable-row" data-action="open-business" data-id="${escapeHtml(d.businessId)}">
-    <td class="mono">${escapeHtml(d.deviceId.slice(0, 10))}</td>
+    <td class="mono">${escapeHtml(d.deviceId.slice(0, 10))}${hardwareTag(d)}</td>
     <td>${escapeHtml(d._businessName)}</td>
     <td>${escapeHtml(d.deviceLabel || '—')}</td>
     <td>${escapeHtml(d.platform || '—')}</td>
@@ -741,7 +749,7 @@ function businessDetailView() {
   } else if (bd.tab === 'devices') {
     body = `<section class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">DEVICES</p><h2>All devices</h2></div></div>
       <div class="table-wrap"><table><thead><tr><th>Device ID</th><th>Name</th><th>Platform</th><th>Status</th><th>Last Seen</th><th>Actions</th></tr></thead><tbody>
-        ${bd.devices.length ? bd.devices.map((d) => `<tr><td class="mono">${escapeHtml(d.deviceId.slice(0, 10))}</td><td>${escapeHtml(d.deviceLabel || '—')}</td><td>${escapeHtml(d.platform || '—')}</td><td>${statusPill(d.status)}</td><td title="${escapeHtml(formatDateTime(d.lastSeenAt))}">${escapeHtml(formatRelative(d.lastSeenAt))}</td><td class="row-actions">${iconButton('rename-device', 'pencil', 'Rename device', `data-id="${escapeHtml(d.deviceId)}"`)}${d.status === 'active' ? iconButton('deactivate-device', 'power', 'Deactivate device', `data-id="${escapeHtml(d.deviceId)}" data-business="${escapeHtml(business.name)}"`) : ''}</td></tr>`).join('') : `<tr><td colspan="6" class="blank">No devices yet.</td></tr>`}
+        ${bd.devices.length ? bd.devices.map((d) => `<tr><td class="mono">${escapeHtml(d.deviceId.slice(0, 10))}${hardwareTag(d)}</td><td>${escapeHtml(d.deviceLabel || '—')}</td><td>${escapeHtml(d.platform || '—')}</td><td>${statusPill(d.status)}</td><td title="${escapeHtml(formatDateTime(d.lastSeenAt))}">${escapeHtml(formatRelative(d.lastSeenAt))}</td><td class="row-actions">${iconButton('rename-device', 'pencil', 'Rename device', `data-id="${escapeHtml(d.deviceId)}"`)}${d.status === 'active' ? iconButton('deactivate-device', 'power', 'Deactivate device', `data-id="${escapeHtml(d.deviceId)}" data-business="${escapeHtml(business.name)}"`) : ''}</td></tr>`).join('') : `<tr><td colspan="6" class="blank">No devices yet.</td></tr>`}
       </tbody></table></div></section>`;
   } else if (bd.tab === 'payments') {
     body = `<section class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">PAYMENTS</p><h2>All payments</h2></div><button type="button" class="primary-button compact-button" data-action="open-modal" data-kind="payment" data-business="${escapeHtml(business.businessId)}">${icon('plus')}Record Payment</button></div>
