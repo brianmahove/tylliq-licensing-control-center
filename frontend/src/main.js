@@ -554,8 +554,8 @@ function devicesView() {
     <td>${escapeHtml(d.platform || '—')}</td>
     <td>${statusPill(d.status)}</td>
     <td>${clockIntegrityBadge(d)}</td>
-    <td>${escapeHtml(formatRelative(d.lastSeenAt))}</td>
-    <td class="row-actions">${d.status === 'active' ? iconButton('deactivate-device', 'power', 'Deactivate device', `data-id="${escapeHtml(d.deviceId)}" data-business="${escapeHtml(d._businessName)}"`) : ''}</td>
+    <td title="${escapeHtml(formatDateTime(d.lastSeenAt))}">${escapeHtml(formatRelative(d.lastSeenAt))}</td>
+    <td class="row-actions">${iconButton('rename-device', 'pencil', 'Rename device', `data-id="${escapeHtml(d.deviceId)}"`)}${d.status === 'active' ? iconButton('deactivate-device', 'power', 'Deactivate device', `data-id="${escapeHtml(d.deviceId)}" data-business="${escapeHtml(d._businessName)}"`) : ''}</td>
   </tr>`).join('') : `<tr><td colspan="8" class="blank"><span class="empty-icon">${icon('devices')}</span><strong>No devices found</strong><small>Devices appear here once a business activates the app.</small></td></tr>`;
   return `<section class="panel table-panel">
     <div class="panel-heading"><div><p class="eyebrow">DIRECTORY</p><h2>Devices</h2></div><div class="panel-actions"><span class="record-count">${filtered.length} records</span></div></div>
@@ -741,7 +741,7 @@ function businessDetailView() {
   } else if (bd.tab === 'devices') {
     body = `<section class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">DEVICES</p><h2>All devices</h2></div></div>
       <div class="table-wrap"><table><thead><tr><th>Device ID</th><th>Name</th><th>Platform</th><th>Status</th><th>Last Seen</th><th>Actions</th></tr></thead><tbody>
-        ${bd.devices.length ? bd.devices.map((d) => `<tr><td class="mono">${escapeHtml(d.deviceId.slice(0, 10))}</td><td>${escapeHtml(d.deviceLabel || '—')}</td><td>${escapeHtml(d.platform || '—')}</td><td>${statusPill(d.status)}</td><td>${escapeHtml(formatRelative(d.lastSeenAt))}</td><td class="row-actions">${d.status === 'active' ? iconButton('deactivate-device', 'power', 'Deactivate device', `data-id="${escapeHtml(d.deviceId)}" data-business="${escapeHtml(business.name)}"`) : ''}</td></tr>`).join('') : `<tr><td colspan="6" class="blank">No devices yet.</td></tr>`}
+        ${bd.devices.length ? bd.devices.map((d) => `<tr><td class="mono">${escapeHtml(d.deviceId.slice(0, 10))}</td><td>${escapeHtml(d.deviceLabel || '—')}</td><td>${escapeHtml(d.platform || '—')}</td><td>${statusPill(d.status)}</td><td title="${escapeHtml(formatDateTime(d.lastSeenAt))}">${escapeHtml(formatRelative(d.lastSeenAt))}</td><td class="row-actions">${iconButton('rename-device', 'pencil', 'Rename device', `data-id="${escapeHtml(d.deviceId)}"`)}${d.status === 'active' ? iconButton('deactivate-device', 'power', 'Deactivate device', `data-id="${escapeHtml(d.deviceId)}" data-business="${escapeHtml(business.name)}"`) : ''}</td></tr>`).join('') : `<tr><td colspan="6" class="blank">No devices yet.</td></tr>`}
       </tbody></table></div></section>`;
   } else if (bd.tab === 'payments') {
     body = `<section class="panel table-panel"><div class="panel-heading"><div><p class="eyebrow">PAYMENTS</p><h2>All payments</h2></div><button type="button" class="primary-button compact-button" data-action="open-modal" data-kind="payment" data-business="${escapeHtml(business.businessId)}">${icon('plus')}Record Payment</button></div>
@@ -884,7 +884,7 @@ function manageLicenseFields(license, plans) {
 }
 
 function modalTitle(kind) {
-  return { business: 'Add Business', license: 'Issue License', plan: 'Add Plan', 'plan-edit': 'Edit Plan', feature: 'Add Feature', 'feature-edit': 'Edit Feature', payment: 'Record Payment', 'manage-license': 'Manage License' }[kind] || 'Add record';
+  return { business: 'Add Business', license: 'Issue License', plan: 'Add Plan', 'plan-edit': 'Edit Plan', feature: 'Add Feature', 'feature-edit': 'Edit Feature', payment: 'Record Payment', 'manage-license': 'Manage License', 'device-rename': 'Rename Device' }[kind] || 'Add record';
 }
 
 function modalFieldsHtml() {
@@ -897,6 +897,7 @@ function modalFieldsHtml() {
   if (kind === 'feature') return featureFields();
   if (kind === 'feature-edit') return featureFields(state.modalEntity);
   if (kind === 'payment') return paymentFields(business);
+  if (kind === 'device-rename') return `<label>Device name<input name="deviceLabel" maxlength="60" placeholder="e.g. Front counter phone" value="${escapeHtml(state.modalEntity?.deviceLabel || '')}" /></label><p class="modal-copy">Leave blank to remove the name.</p>`;
   if (kind === 'manage-license') return state.modalLookups ? manageLicenseFields(state.modalEntity, state.modalLookups.plans) : '<p class="modal-copy">Loading...</p>';
   return '';
 }
@@ -1056,6 +1057,10 @@ async function submitEntityForm(form) {
       state.modalLookups = null;
       state.modalEntity = null;
       state.revealedLicenseKey = result.licenseKey;
+    } else if (state.modal === 'device-rename') {
+      await apiCall('adminRenameDevice', { deviceId: state.modalEntity.deviceId, deviceLabel: data.get('deviceLabel') });
+      showToast('Device renamed');
+      closeModal();
     } else if (state.modal === 'manage-license') {
       const license = state.modalEntity;
       const updates = {};
@@ -1222,6 +1227,12 @@ function handleAction(action, target, event) {
         danger: nextStatus !== 'active',
         run: async () => { await apiCall('adminSetBusinessStatus', { businessId: id, status: nextStatus }); return `Business ${nextStatus === 'active' ? 'activated' : 'suspended'}`; },
       });
+      return;
+    }
+    case 'rename-device': {
+      const source = state.view === 'business-detail' ? state.businessDetail.devices : (state.data?.devices || []);
+      const device = source.find((d) => d.deviceId === id);
+      if (device) openModal('device-rename', device);
       return;
     }
     case 'deactivate-device': {

@@ -219,7 +219,10 @@ exports.activateDevice = onRequest(withCors(async (req, res) => {
     const clockFields = clockIntegrityFields(clockIntegrity, now);
     await deviceRef.update({
       status: 'active',
-      platform, appVersion, deviceLabel,
+      platform, appVersion,
+      // A device that reactivates without a name mustn't wipe one an admin
+      // set from the dashboard.
+      ...(deviceLabel ? { deviceLabel } : {}),
       lastSeenAt: now.toISOString(),
       deviceSecretHash: sha256Hex(deviceSecret),
       deactivatedAt: null,
@@ -282,6 +285,10 @@ exports.revalidateDevice = onRequest(withCors(async (req, res) => {
   }
   const device = deviceSnap.data();
   if (device.status !== 'active') {
+    // Still real contact from this device - record it so "last seen" reflects
+    // the last time it actually reached the server, not just the last time
+    // it was accepted.
+    await deviceRef.update({ lastSeenAt: new Date().toISOString() });
     await writeAuditLog({ type: 'revalidation_rejected', businessId: device.businessId, licenseId: device.licenseId, deviceId, meta: { reason: 'device_deactivated' } });
     return sendJson(res, 403, fail('failed-precondition', 'This device has been deactivated.'));
   }

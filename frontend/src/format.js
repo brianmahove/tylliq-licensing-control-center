@@ -31,13 +31,14 @@ export function formatRelative(value) {
   const diffSec = Math.round(diffMs / 1000);
   if (diffSec < 0) return formatDate(value);
   if (diffSec < 45) return 'just now';
-  const diffMin = Math.round(diffSec / 60);
+  // floor, not round: 89 minutes is "1 hr ago", not "2 hr ago".
+  const diffMin = Math.floor(diffSec / 60);
   if (diffMin < 60) return `${diffMin} min ago`;
-  const diffHr = Math.round(diffMin / 60);
+  const diffHr = Math.floor(diffMin / 60);
   if (diffHr < 24) return `${diffHr} hr ago`;
-  const diffDay = Math.round(diffHr / 24);
+  const diffDay = Math.floor(diffHr / 24);
   if (diffDay < 7) return `${diffDay}d ago`;
-  return formatDate(value);
+  return formatDateTime(value);
 }
 
 export function formatMoney(cents, currency = 'USD') {

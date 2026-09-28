@@ -37,3 +37,27 @@ exports.adminDeactivateDevice = onRequest(withCors(async (req, res) => {
   await writeAuditLog({ type: 'device_deactivated', businessId: snap.data().businessId, licenseId: snap.data().licenseId, deviceId, meta: { by: `admin:${admin_.uid}` } });
   return sendJson(res, 200, ok({ deviceId, status: 'deactivated' }));
 }));
+
+const MAX_DEVICE_LABEL_LENGTH = 60;
+
+exports.adminRenameDevice = onRequest(withCors(async (req, res) => {
+  if (req.method !== 'POST') return sendJson(res, 405, fail('invalid-argument', 'POST required'));
+  const admin_ = await requireRole(req, res, WRITE_ROLES);
+  if (!admin_) return;
+  const { deviceId, deviceLabel } = req.body || {};
+  if (!deviceId) return sendJson(res, 400, fail('invalid-argument', 'deviceId is required'));
+  if (deviceLabel != null && typeof deviceLabel !== 'string') {
+    return sendJson(res, 400, fail('invalid-argument', 'deviceLabel must be a string'));
+  }
+  // A blank name clears the label back to "no name" rather than storing ''.
+  const label = (deviceLabel || '').trim() || null;
+  if (label && label.length > MAX_DEVICE_LABEL_LENGTH) {
+    return sendJson(res, 400, fail('invalid-argument', `deviceLabel must be at most ${MAX_DEVICE_LABEL_LENGTH} characters`));
+  }
+  const ref = db.collection('devices').doc(deviceId);
+  const snap = await ref.get();
+  if (!snap.exists) return sendJson(res, 404, fail('not-found', 'Device not found.'));
+  await ref.update({ deviceLabel: label });
+  await writeAuditLog({ type: 'device_renamed', businessId: snap.data().businessId, licenseId: snap.data().licenseId, deviceId, meta: { by: `admin:${admin_.uid}` } });
+  return sendJson(res, 200, ok({ deviceId, deviceLabel: label }));
+}));

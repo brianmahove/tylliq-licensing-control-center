@@ -85,6 +85,7 @@ exports.syncData = onRequest(withCors(async (req, res) => {
   }
   const device = deviceSnap.data();
   if (device.status !== 'active') {
+    await deviceRef.update({ lastSeenAt: new Date().toISOString() });
     return sendJson(res, 403, fail('failed-precondition', 'This device has been deactivated.'));
   }
 
